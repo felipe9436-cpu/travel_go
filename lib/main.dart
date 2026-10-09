@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'screens/home_screen.dart';
 import 'theme/app_theme.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Inicialização do Supabase
+  await Supabase.initialize(
+    url: 'https://SEU_PROJETO.supabase.co', // Substitua pelo seu URL do Supabase
+    anonKey: 'SUA_CHAVE_ANONIMA_SUPABASE',   // Substitua pela sua anonKey
+  );
+
   runApp(const TravelGoApp());
 }
 
@@ -13,9 +22,9 @@ class TravelGoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner: false,
       title: 'TRAVEL GO',
-      theme: AppTheme.darkTheme,
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.darkTheme, // Utiliza o tema que já configurou
       home: const HomeScreen(),
     );
   }
