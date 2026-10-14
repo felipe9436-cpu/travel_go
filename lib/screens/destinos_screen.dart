@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
@@ -10,60 +11,58 @@ class DestinosScreen extends StatefulWidget {
 }
 
 class _DestinosScreenState extends State<DestinosScreen> {
-  String _selectedFilter = 'Todos';
+  String _filtroSelecionado = 'Todos';
+  String _termoPesquisa = '';
 
-  final List<_Destino> _destinos = [
-    const _Destino(
-      nome: 'Torre Eiffel',
-      cidade: 'Paris, França',
-      categoria: 'Ponto turístico',
-      descricao: 'Um dos principais símbolos de Paris.',
-      icon: Icons.location_city,
-      cor: Color(0xFF3B82F6),
-    ),
-    const _Destino(
-      nome: 'Museu do Louvre',
-      cidade: 'Paris, França',
-      categoria: 'Cultura',
-      descricao: 'Arte, história e uma das maiores coleções do mundo.',
-      icon: Icons.museum_outlined,
-      cor: Color(0xFFD6A84F),
-    ),
-    const _Destino(
-      nome: 'Montmartre',
-      cidade: 'Paris, França',
-      categoria: 'Passeio',
-      descricao: 'Bairro histórico conhecido por suas ruas e cafés.',
-      icon: Icons.photo_camera_outlined,
-      cor: Color(0xFF8B5CF6),
-    ),
-    const _Destino(
-      nome: 'Jardim de Luxemburgo',
-      cidade: 'Paris, França',
-      categoria: 'Natureza',
-      descricao: 'Um espaço tranquilo para caminhar e relaxar.',
-      icon: Icons.park_outlined,
-      cor: Color(0xFF4ADE80),
-    ),
-  ];
+  final List<_Destino> _destinos = [];
 
-  final List<String> _filters = [
+  final List<String> _categorias = [
     'Todos',
-    'Pontos turísticos',
+    'Ponto turístico',
     'Cultura',
     'Passeio',
     'Natureza',
+    'Hospedagem',
+    'Restaurante',
+    'Transporte',
   ];
+
+  List<_Destino> get _destinosFiltrados {
+    return _destinos.where((destino) {
+      final correspondeCategoria =
+          _filtroSelecionado == 'Todos' ||
+              destino.categoria == _filtroSelecionado;
+
+      final termo = _termoPesquisa.trim().toLowerCase();
+
+      final correspondePesquisa =
+          termo.isEmpty ||
+              destino.nome.toLowerCase().contains(termo) ||
+              destino.cidade.toLowerCase().contains(termo) ||
+              destino.categoria.toLowerCase().contains(termo);
+
+      return correspondeCategoria && correspondePesquisa;
+    }).toList();
+  }
+
+  int get _totalFavoritos =>
+      _destinos.where((destino) => destino.favorito).length;
+
+  int get _totalVisitados =>
+      _destinos.where((destino) => destino.visitado).length;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Destinos'),
+        title: const Text(
+          'Destinos',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         actions: [
           IconButton(
-            tooltip: 'Pesquisar',
-            onPressed: () => _abrirPesquisa(),
+            tooltip: 'Pesquisar destinos',
+            onPressed: _abrirPesquisa,
             icon: const Icon(Icons.search),
           ),
           const SizedBox(width: 8),
@@ -71,36 +70,49 @@ class _DestinosScreenState extends State<DestinosScreen> {
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final isWide = constraints.maxWidth >= 900;
+          final largura = constraints.maxWidth;
+          final colunas = largura >= 1100
+              ? 3
+              : largura >= 650
+              ? 2
+              : 1;
 
           return CustomScrollView(
             slivers: [
               SliverPadding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: isWide ? 40 : 20,
-                  vertical: 12,
+                padding: EdgeInsets.fromLTRB(
+                  largura >= 900 ? 36 : 20,
+                  20,
+                  largura >= 900 ? 36 : 20,
+                  24,
                 ),
-                sliver: SliverList(
-                  delegate: SliverChildListDelegate([
-                    _buildHeader(context, isWide),
-                    const SizedBox(height: 24),
-                    _buildStats(),
-                    const SizedBox(height: 28),
-                    _buildFilters(),
-                    const SizedBox(height: 24),
-                  ]),
+                sliver: SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildCabecalho(context, largura >= 650),
+                      const SizedBox(height: 24),
+                      _buildPesquisa(),
+                      const SizedBox(height: 20),
+                      _buildEstatisticas(largura < 600),
+                      const SizedBox(height: 28),
+                      _buildTituloSecao(),
+                      const SizedBox(height: 14),
+                      _buildFiltros(),
+                    ],
+                  ),
                 ),
               ),
-              _buildDestinationGrid(isWide),
+              _buildListaDestinos(colunas, largura),
               SliverPadding(
                 padding: EdgeInsets.fromLTRB(
-                  isWide ? 40 : 20,
-                  28,
-                  isWide ? 40 : 20,
+                  largura >= 900 ? 36 : 20,
+                  24,
+                  largura >= 900 ? 36 : 20,
                   100,
                 ),
                 sliver: SliverToBoxAdapter(
-                  child: _buildTravelTip(),
+                  child: _buildDicaViagem(),
                 ),
               ),
             ],
@@ -108,114 +120,161 @@ class _DestinosScreenState extends State<DestinosScreen> {
         },
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _abrirAdicionarDestino,
+        onPressed: _adicionarDestino,
         icon: const Icon(Icons.add_location_alt_outlined),
         label: const Text('Adicionar destino'),
       ),
     );
   }
 
-  Widget _buildHeader(BuildContext context, bool isWide) {
+  Widget _buildCabecalho(BuildContext context, bool mostrarBotao) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Explore sua viagem',
-                style: Theme.of(context).textTheme.headlineMedium,
+                'Explore novos lugares',
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 8),
-              Text(
-                'Organize os lugares que você quer conhecer durante sua viagem.',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              const Text(
+                'Reúna os lugares que deseja conhecer e organize '
+                    'suas próximas experiências.',
+                style: TextStyle(
                   color: AppColors.textSecondary,
+                  height: 1.5,
                 ),
               ),
             ],
           ),
         ),
-        if (isWide) ...[
-          const SizedBox(width: 20),
-          FilledButton.tonalIcon(
-            onPressed: _abrirAdicionarDestino,
+        if (mostrarBotao) ...[
+          const SizedBox(width: 16),
+          IconButton.filledTonal(
+            tooltip: 'Novo destino',
+            onPressed: _adicionarDestino,
             icon: const Icon(Icons.add),
-            label: const Text('Novo destino'),
           ),
         ],
       ],
     );
   }
 
-  Widget _buildStats() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isCompact = constraints.maxWidth < 600;
-
-        final cards = [
-          _StatCard(
-            icon: Icons.place_outlined,
-            value: '${_destinos.length}',
-            label: 'Destinos',
-            color: AppColors.primary,
-          ),
-          const _StatCard(
-            icon: Icons.star_outline,
-            value: '4.8',
-            label: 'Avaliação média',
-            color: AppColors.warning,
-          ),
-          const _StatCard(
-            icon: Icons.check_circle_outline,
-            value: '2',
-            label: 'Visitados',
-            color: AppColors.success,
-          ),
-        ];
-
-        if (isCompact) {
-          return Column(
-            children: cards
-                .map(
-                  (card) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: card,
-              ),
-            )
-                .toList(),
-          );
-        }
-
-        return Row(
-          children: [
-            for (int i = 0; i < cards.length; i++) ...[
-              Expanded(child: cards[i]),
-              if (i != cards.length - 1) const SizedBox(width: 12),
-            ],
-          ],
-        );
+  Widget _buildPesquisa() {
+    return TextField(
+      onChanged: (valor) {
+        setState(() {
+          _termoPesquisa = valor;
+        });
       },
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: 'Buscar por lugar, cidade ou categoria...',
+        prefixIcon: const Icon(Icons.search),
+        suffixIcon: _termoPesquisa.isNotEmpty
+            ? IconButton(
+          tooltip: 'Limpar pesquisa',
+          onPressed: () {
+            setState(() {
+              _termoPesquisa = '';
+            });
+          },
+          icon: const Icon(Icons.close),
+        )
+            : null,
+      ),
     );
   }
 
-  Widget _buildFilters() {
+  Widget _buildEstatisticas(bool compacto) {
+    final cards = [
+      _StatCard(
+        icon: Icons.place_outlined,
+        valor: '${_destinos.length}',
+        titulo: 'Destinos',
+        cor: AppColors.primary,
+      ),
+      _StatCard(
+        icon: Icons.favorite_border,
+        valor: '$_totalFavoritos',
+        titulo: 'Favoritos',
+        cor: AppColors.error,
+      ),
+      _StatCard(
+        icon: Icons.check_circle_outline,
+        valor: '$_totalVisitados',
+        titulo: 'Visitados',
+        cor: AppColors.success,
+      ),
+    ];
+
+    if (compacto) {
+      return Row(
+        children: [
+          for (int i = 0; i < cards.length; i++) ...[
+            Expanded(child: cards[i]),
+            if (i != cards.length - 1) const SizedBox(width: 8),
+          ],
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        for (int i = 0; i < cards.length; i++) ...[
+          Expanded(child: cards[i]),
+          if (i != cards.length - 1) const SizedBox(width: 12),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildTituloSecao() {
+    return Row(
+      children: [
+        const Expanded(
+          child: Text(
+            'Seus destinos',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        Text(
+          '${_destinosFiltrados.length} '
+              '${_destinosFiltrados.length == 1 ? 'lugar' : 'lugares'}',
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 13,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFiltros() {
     return SizedBox(
-      height: 44,
+      height: 42,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: _filters.length,
+        itemCount: _categorias.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          final filter = _filters[index];
+          final categoria = _categorias[index];
 
           return ChoiceChip(
-            label: Text(filter),
-            selected: _selectedFilter == filter,
+            label: Text(categoria),
+            selected: _filtroSelecionado == categoria,
+            showCheckmark: false,
             onSelected: (_) {
               setState(() {
-                _selectedFilter = filter;
+                _filtroSelecionado = categoria;
               });
             },
           );
@@ -224,387 +283,403 @@ class _DestinosScreenState extends State<DestinosScreen> {
     );
   }
 
-  Widget _buildDestinationGrid(bool isWide) {
-    final filteredDestinos = _destinos.where((destino) {
-      if (_selectedFilter == 'Todos') return true;
-      return destino.categoria == _selectedFilter;
-    }).toList();
+  Widget _buildListaDestinos(int colunas, double largura) {
+    final destinos = _destinosFiltrados;
 
-    if (filteredDestinos.isEmpty) {
+    if (destinos.isEmpty) {
       return SliverPadding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+        padding: EdgeInsets.symmetric(
+          horizontal: largura >= 900 ? 36 : 20,
+        ),
         sliver: SliverToBoxAdapter(
-          child: _buildEmptyFilterState(),
+          child: _buildEstadoVazio(),
         ),
       );
     }
 
     return SliverPadding(
       padding: EdgeInsets.symmetric(
-        horizontal: isWide ? 40 : 20,
+        horizontal: largura >= 900 ? 36 : 20,
       ),
       sliver: SliverGrid(
         delegate: SliverChildBuilderDelegate(
               (context, index) {
-            final destino = filteredDestinos[index];
+            final destino = destinos[index];
 
             return _DestinoCard(
               destino: destino,
               onTap: () => _abrirDetalhes(destino),
-              onFavorite: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      '${destino.nome} adicionado aos favoritos.',
-                    ),
-                  ),
-                );
-              },
+              onFavorito: () => _alternarFavorito(destino),
             );
           },
-          childCount: filteredDestinos.length,
+          childCount: destinos.length,
         ),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: isWide ? 3 : 1,
+          crossAxisCount: colunas,
           crossAxisSpacing: 16,
           mainAxisSpacing: 16,
-          childAspectRatio: isWide ? 1.35 : 1.65,
+          mainAxisExtent: colunas == 1 ? 190 : 210,
         ),
       ),
     );
   }
 
-  Widget _buildEmptyFilterState() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          children: [
-            const Icon(
-              Icons.search_off_outlined,
-              size: 48,
-              color: AppColors.textMuted,
+  Widget _buildEstadoVazio() {
+    final temDestinos = _destinos.isNotEmpty;
+    final temPesquisa = _termoPesquisa.trim().isNotEmpty;
+
+    String titulo;
+    String descricao;
+    IconData icone;
+
+    if (!temDestinos) {
+      titulo = 'Sua próxima aventura começa aqui';
+      descricao =
+      'Adicione seu primeiro destino para começar a organizar '
+          'os lugares que deseja conhecer.';
+      icone = Icons.explore_outlined;
+    } else if (temPesquisa) {
+      titulo = 'Nenhum resultado encontrado';
+      descricao =
+      'Tente pesquisar outro nome, cidade ou categoria.';
+      icone = Icons.search_off_outlined;
+    } else {
+      titulo = 'Nenhum destino nesta categoria';
+      descricao =
+      'Escolha outra categoria ou veja todos os seus destinos.';
+      icone = Icons.location_off_outlined;
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: 24,
+        vertical: 36,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 68,
+            height: 68,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(22),
             ),
-            const SizedBox(height: 16),
-            const Text(
-              'Nenhum destino encontrado',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
-              ),
+            child: Icon(
+              icone,
+              size: 34,
+              color: AppColors.primary,
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Não há destinos nessa categoria.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.textSecondary,
-              ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            titulo,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
             ),
-            const SizedBox(height: 20),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            descricao,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 20),
+          if (!temDestinos)
+            FilledButton.icon(
+              onPressed: _adicionarDestino,
+              icon: const Icon(Icons.add_location_alt_outlined),
+              label: const Text('Adicionar primeiro destino'),
+            )
+          else
             OutlinedButton(
               onPressed: () {
                 setState(() {
-                  _selectedFilter = 'Todos';
+                  _filtroSelecionado = 'Todos';
+                  _termoPesquisa = '';
                 });
               },
-              child: const Text('Ver todos'),
+              child: const Text('Limpar filtros'),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
 
-  Widget _buildTravelTip() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Icon(
-                Icons.lightbulb_outline,
-                color: AppColors.primary,
-              ),
-            ),
-            const SizedBox(width: 16),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Dica de viagem',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 16,
-                    ),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    'Agrupe destinos próximos no mesmo dia para aproveitar melhor o tempo e reduzir deslocamentos.',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      height: 1.45,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+  Widget _buildDicaViagem() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
       ),
-    );
-  }
-
-  void _abrirPesquisa() {
-    showSearch(
-      context: context,
-      delegate: _DestinoSearchDelegate(_destinos),
-    );
-  }
-
-  void _abrirDetalhes(_Destino destino) {
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      backgroundColor: AppColors.surface,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 8, 24, 30),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.lightbulb_outline,
+            color: AppColors.primary,
+            size: 26,
+          ),
+          SizedBox(width: 14),
+          Expanded(
             child: Column(
-              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: destino.cor.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: Icon(
-                        destino.icon,
-                        color: destino.cor,
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            destino.nome,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            destino.cidade,
-                            style: const TextStyle(
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
                 Text(
-                  destino.categoria,
-                  style: const TextStyle(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w700,
+                  'Dica de viagem',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
                   ),
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: 6),
                 Text(
-                  destino.descricao,
-                  style: const TextStyle(
+                  'Agrupe lugares próximos no mesmo dia para aproveitar '
+                      'melhor o tempo e facilitar os deslocamentos.',
+                  style: TextStyle(
                     color: AppColors.textSecondary,
                     height: 1.5,
                   ),
                 ),
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(this.context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Destino adicionado ao roteiro.'),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.route_outlined),
-                        label: const Text('Adicionar ao roteiro'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    IconButton.filled(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(this.context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Destino salvo nos favoritos.'),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.favorite_border),
-                    ),
-                  ],
-                ),
               ],
             ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 
-  void _abrirAdicionarDestino() {
-    final nomeController = TextEditingController();
-    final cidadeController = TextEditingController();
-    final descricaoController = TextEditingController();
+  void _abrirPesquisa() async {
+    final destino = await showSearch<_Destino?>(
+      context: context,
+      delegate: _DestinoSearchDelegate(_destinos),
+    );
 
-    showModalBottomSheet(
+    if (!mounted || destino == null) return;
+
+    _abrirDetalhes(destino);
+  }
+
+  void _alternarFavorito(_Destino destino) {
+    setState(() {
+      destino.favorito = !destino.favorito;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          destino.favorito
+              ? '${destino.nome} adicionado aos favoritos.'
+              : '${destino.nome} removido dos favoritos.',
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _alternarVisitado(_Destino destino) {
+    setState(() {
+      destino.visitado = !destino.visitado;
+    });
+  }
+
+  void _alternarRoteiro(_Destino destino) {
+    setState(() {
+      destino.noRoteiro = !destino.noRoteiro;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          destino.noRoteiro
+              ? '${destino.nome} marcado para o roteiro.'
+              : '${destino.nome} removido do roteiro.',
+        ),
+      ),
+    );
+  }
+
+  void _abrirDetalhes(_Destino destino) {
+    showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       backgroundColor: AppColors.surface,
-      builder: (context) {
-        String categoriaSelecionada = 'Passeio';
-
+      builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                24,
-                8,
-                24,
-                MediaQuery.viewInsetsOf(context).bottom + 24,
-              ),
+            return SafeArea(
               child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Novo destino',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Adicione um lugar que você deseja conhecer.',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    TextField(
-                      controller: nomeController,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Nome do destino',
-                        prefixIcon: Icon(Icons.place_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: cidadeController,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Cidade e país',
-                        prefixIcon: Icon(Icons.public),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: descricaoController,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'Descrição',
-                        prefixIcon: Icon(Icons.notes_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    const Text(
-                      'Categoria',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                    Row(
                       children: [
-                        for (final categoria in [
-                          'Passeio',
-                          'Cultura',
-                          'Natureza',
-                          'Ponto turístico',
-                        ])
-                          ChoiceChip(
-                            label: Text(categoria),
-                            selected: categoriaSelecionada == categoria,
-                            onSelected: (_) {
-                              setModalState(() {
-                                categoriaSelecionada = categoria;
-                              });
-                            },
+                        Container(
+                          width: 58,
+                          height: 58,
+                          decoration: BoxDecoration(
+                            color: destino.cor.withOpacity(0.13),
+                            borderRadius: BorderRadius.circular(18),
                           ),
+                          child: Icon(
+                            destino.icone,
+                            color: destino.cor,
+                            size: 30,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                destino.nome,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleLarge
+                                    ?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                destino.cidade,
+                                style: const TextStyle(
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Fechar',
+                          onPressed: () => Navigator.pop(sheetContext),
+                          icon: const Icon(Icons.close),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 24),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Chip(
+                        label: Text(destino.categoria),
+                        avatar: Icon(
+                          destino.icone,
+                          size: 17,
+                          color: destino.cor,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      destino.descricao.isEmpty
+                          ? 'Nenhuma descrição foi adicionada para este destino.'
+                          : destino.descricao,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        height: 1.6,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppColors.background,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            destino.visitado
+                                ? Icons.check_circle
+                                : Icons.circle_outlined,
+                            color: destino.visitado
+                                ? AppColors.success
+                                : AppColors.textMuted,
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text('Já visitei este lugar'),
+                          ),
+                          Switch(
+                            value: destino.visitado,
+                            onChanged: (_) {
+                              _alternarVisitado(destino);
+                              setModalState(() {});
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
                         onPressed: () {
-                          if (nomeController.text.trim().isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Digite o nome do destino.',
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-
-                          Navigator.pop(context);
-
-                          ScaffoldMessenger.of(this.context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                '${nomeController.text.trim()} foi adicionado à viagem.',
-                              ),
-                            ),
-                          );
+                          _alternarRoteiro(destino);
+                          setModalState(() {});
                         },
-                        icon: const Icon(Icons.add_location_alt_outlined),
-                        label: const Text('Adicionar destino'),
+                        icon: Icon(
+                          destino.noRoteiro
+                              ? Icons.remove_circle_outline
+                              : Icons.route_outlined,
+                        ),
+                        label: Text(
+                          destino.noRoteiro
+                              ? 'Remover do roteiro'
+                              : 'Adicionar ao roteiro',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          _alternarFavorito(destino);
+                          setModalState(() {});
+                        },
+                        icon: Icon(
+                          destino.favorito
+                              ? Icons.favorite
+                              : Icons.favorite_border,
+                          color: destino.favorito
+                              ? AppColors.error
+                              : null,
+                        ),
+                        label: Text(
+                          destino.favorito
+                              ? 'Remover dos favoritos'
+                              : 'Salvar nos favoritos',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _confirmarRemocao(destino);
+                        },
+                        icon: const Icon(Icons.delete_outline),
+                        label: const Text('Excluir destino'),
                       ),
                     ),
                   ],
@@ -615,6 +690,289 @@ class _DestinosScreenState extends State<DestinosScreen> {
         );
       },
     );
+  }
+
+  Future<void> _adicionarDestino() async {
+    final nomeController = TextEditingController();
+    final cidadeController = TextEditingController();
+    final descricaoController = TextEditingController();
+
+    String categoriaSelecionada = 'Passeio';
+    String? erro;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: AppColors.surface,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  22,
+                  8,
+                  22,
+                  MediaQuery.viewInsetsOf(context).bottom + 24,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Adicionar destino',
+                        style: Theme.of(context)
+                            .textTheme
+                            .headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Cadastre um lugar que deseja conhecer.',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      TextField(
+                        controller: nomeController,
+                        autofocus: true,
+                        textCapitalization: TextCapitalization.words,
+                        decoration: const InputDecoration(
+                          labelText: 'Nome do destino *',
+                          hintText: 'Ex.: Parque Ibirapuera',
+                          prefixIcon: Icon(Icons.place_outlined),
+                        ),
+                        onChanged: (_) {
+                          if (erro != null) {
+                            setModalState(() => erro = null);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: cidadeController,
+                        textCapitalization: TextCapitalization.words,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Cidade e país',
+                          hintText: 'Ex.: São Paulo, Brasil',
+                          prefixIcon: Icon(Icons.public),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: descricaoController,
+                        textCapitalization: TextCapitalization.sentences,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: 'Descrição (opcional)',
+                          hintText: 'O que você deseja conhecer?',
+                          prefixIcon: Icon(Icons.notes_outlined),
+                          alignLabelWithHint: true,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Categoria',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final categoria in _categorias.skip(1))
+                            ChoiceChip(
+                              label: Text(categoria),
+                              selected:
+                              categoriaSelecionada == categoria,
+                              showCheckmark: false,
+                              onSelected: (_) {
+                                setModalState(() {
+                                  categoriaSelecionada = categoria;
+                                });
+                              },
+                            ),
+                        ],
+                      ),
+                      if (erro != null) ...[
+                        const SizedBox(height: 14),
+                        Text(
+                          erro!,
+                          style: const TextStyle(
+                            color: AppColors.error,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            final nome = nomeController.text.trim();
+                            final cidade = cidadeController.text.trim();
+
+                            if (nome.isEmpty) {
+                              setModalState(() {
+                                erro = 'Informe o nome do destino.';
+                              });
+                              return;
+                            }
+
+                            final repetido = _destinos.any(
+                                  (destino) =>
+                              destino.nome.toLowerCase() ==
+                                  nome.toLowerCase() &&
+                                  destino.cidade.toLowerCase() ==
+                                      cidade.toLowerCase(),
+                            );
+
+                            if (repetido) {
+                              setModalState(() {
+                                erro = 'Este destino já está cadastrado.';
+                              });
+                              return;
+                            }
+
+                            final novoDestino = _Destino(
+                              nome: nome,
+                              cidade: cidade.isEmpty
+                                  ? 'Localização não informada'
+                                  : cidade,
+                              categoria: categoriaSelecionada,
+                              descricao:
+                              descricaoController.text.trim(),
+                              icone: _iconeCategoria(categoriaSelecionada),
+                              cor: _corCategoria(categoriaSelecionada),
+                            );
+
+                            setState(() {
+                              _destinos.insert(0, novoDestino);
+                              _filtroSelecionado = 'Todos';
+                              _termoPesquisa = '';
+                            });
+
+                            Navigator.pop(sheetContext);
+
+                            ScaffoldMessenger.of(this.context)
+                                .showSnackBar(
+                              SnackBar(
+                                content: Text('$nome adicionado aos destinos.'),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.add_location_alt_outlined),
+                          label: const Text('Salvar destino'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    nomeController.dispose();
+    cidadeController.dispose();
+    descricaoController.dispose();
+  }
+
+  Future<void> _confirmarRemocao(_Destino destino) async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Excluir destino?'),
+          content: Text(
+            'Deseja remover "${destino.nome}" da sua lista?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Excluir'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmar != true || !mounted) return;
+
+    final index = _destinos.indexOf(destino);
+    if (index == -1) return;
+
+    setState(() {
+      _destinos.removeAt(index);
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${destino.nome} removido.'),
+        action: SnackBarAction(
+          label: 'DESFAZER',
+          onPressed: () {
+            if (!mounted) return;
+            setState(() {
+              _destinos.insert(
+                index.clamp(0, _destinos.length),
+                destino,
+              );
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  IconData _iconeCategoria(String categoria) {
+    switch (categoria) {
+      case 'Ponto turístico':
+        return Icons.location_city_outlined;
+      case 'Cultura':
+        return Icons.museum_outlined;
+      case 'Natureza':
+        return Icons.park_outlined;
+      case 'Hospedagem':
+        return Icons.hotel_outlined;
+      case 'Restaurante':
+        return Icons.restaurant_outlined;
+      case 'Transporte':
+        return Icons.directions_transit_outlined;
+      default:
+        return Icons.explore_outlined;
+    }
+  }
+
+  Color _corCategoria(String categoria) {
+    switch (categoria) {
+      case 'Ponto turístico':
+        return AppColors.primary;
+      case 'Cultura':
+        return const Color(0xFF9B8AFB);
+      case 'Natureza':
+        return AppColors.success;
+      case 'Hospedagem':
+        return AppColors.blue;
+      case 'Restaurante':
+        return const Color(0xFFFB923C);
+      case 'Transporte':
+        return AppColors.cyan;
+      default:
+        return AppColors.primaryLight;
+    }
   }
 }
 
@@ -623,103 +981,150 @@ class _Destino {
   final String cidade;
   final String categoria;
   final String descricao;
-  final IconData icon;
+  final IconData icone;
   final Color cor;
 
-  const _Destino({
+  bool favorito;
+  bool visitado;
+  bool noRoteiro;
+
+  _Destino({
     required this.nome,
     required this.cidade,
     required this.categoria,
     required this.descricao,
-    required this.icon,
+    required this.icone,
     required this.cor,
+    this.favorito = false,
+    this.visitado = false,
+    this.noRoteiro = false,
   });
 }
 
 class _DestinoCard extends StatelessWidget {
   final _Destino destino;
   final VoidCallback onTap;
-  final VoidCallback onFavorite;
+  final VoidCallback onFavorito;
 
   const _DestinoCard({
     required this.destino,
     required this.onTap,
-    required this.onFavorite,
+    required this.onFavorito,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
       clipBehavior: Clip.antiAlias,
+      margin: EdgeInsets.zero,
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.all(16),
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      color: destino.cor.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Icon(
-                      destino.icon,
-                      color: destino.cor,
-                      size: 27,
-                    ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    tooltip: 'Favoritar',
-                    onPressed: onFavorite,
-                    icon: const Icon(Icons.favorite_border),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              Text(
-                destino.categoria.toUpperCase(),
-                style: TextStyle(
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: destino.cor.withOpacity(0.13),
+                  borderRadius: BorderRadius.circular(17),
+                ),
+                child: Icon(
+                  destino.icone,
                   color: destino.cor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1,
+                  size: 30,
                 ),
               ),
-              const SizedBox(height: 7),
-              Text(
-                destino.nome,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 5),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.location_on_outlined,
-                    size: 16,
-                    color: AppColors.textMuted,
-                  ),
-                  const SizedBox(width: 5),
-                  Expanded(
-                    child: Text(
-                      destino.cidade,
+              const SizedBox(width: 15),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      destino.categoria.toUpperCase(),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
+                      style: TextStyle(
+                        color: destino.cor,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.8,
                       ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      destino.nome,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.location_on_outlined,
+                          size: 15,
+                          color: AppColors.textMuted,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            destino.cidade,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (destino.visitado || destino.noRoteiro) ...[
+                      const SizedBox(height: 7),
+                      Wrap(
+                        spacing: 6,
+                        children: [
+                          if (destino.visitado)
+                            const _StatusTag(
+                              texto: 'Visitado',
+                              cor: AppColors.success,
+                            ),
+                          if (destino.noRoteiro)
+                            const _StatusTag(
+                              texto: 'No roteiro',
+                              cor: AppColors.primary,
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    tooltip: destino.favorito
+                        ? 'Remover favorito'
+                        : 'Adicionar favorito',
+                    onPressed: onFavorito,
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(
+                      destino.favorito
+                          ? Icons.favorite
+                          : Icons.favorite_border,
+                      color: destino.favorito
+                          ? AppColors.error
+                          : AppColors.textMuted,
                     ),
                   ),
                   const Icon(
-                    Icons.arrow_forward,
-                    size: 18,
+                    Icons.chevron_right,
                     color: AppColors.textMuted,
                   ),
                 ],
@@ -732,58 +1137,79 @@ class _DestinoCard extends StatelessWidget {
   }
 }
 
-class _StatCard extends StatelessWidget {
-  final IconData icon;
-  final String value;
-  final String label;
-  final Color color;
+class _StatusTag extends StatelessWidget {
+  final String texto;
+  final Color cor;
 
-  const _StatCard({
-    required this.icon,
-    required this.value,
-    required this.label,
-    required this.color,
+  const _StatusTag({
+    required this.texto,
+    required this.cor,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(
-                icon,
-                color: color,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
-          ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: cor.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        texto,
+        style: TextStyle(
+          color: cor,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
         ),
+      ),
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final IconData icon;
+  final String valor;
+  final String titulo;
+  final Color cor;
+
+  const _StatCard({
+    required this.icon,
+    required this.valor,
+    required this.titulo,
+    required this.cor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: cor, size: 23),
+          const SizedBox(height: 9),
+          Text(
+            valor,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            titulo,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 11,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -795,10 +1221,14 @@ class _DestinoSearchDelegate extends SearchDelegate<_Destino?> {
   _DestinoSearchDelegate(this.destinos);
 
   @override
-  List<Widget>? buildActions(BuildContext context) {
+  String get searchFieldLabel => 'Pesquisar destinos';
+
+  @override
+  List<Widget> buildActions(BuildContext context) {
     return [
       if (query.isNotEmpty)
         IconButton(
+          tooltip: 'Limpar pesquisa',
           onPressed: () => query = '',
           icon: const Icon(Icons.clear),
         ),
@@ -806,27 +1236,25 @@ class _DestinoSearchDelegate extends SearchDelegate<_Destino?> {
   }
 
   @override
-  Widget? buildLeading(BuildContext context) {
+  Widget buildLeading(BuildContext context) {
     return IconButton(
+      tooltip: 'Voltar',
       onPressed: () => close(context, null),
       icon: const Icon(Icons.arrow_back),
     );
   }
 
   @override
-  Widget buildResults(BuildContext context) {
-    return _buildResults();
-  }
+  Widget buildResults(BuildContext context) => _buildResultados(context);
 
   @override
-  Widget buildSuggestions(BuildContext context) {
-    return _buildResults();
-  }
+  Widget buildSuggestions(BuildContext context) =>
+      _buildResultados(context);
 
-  Widget _buildResults() {
+  Widget _buildResultados(BuildContext context) {
+    final termo = query.trim().toLowerCase();
+
     final resultados = destinos.where((destino) {
-      final termo = query.toLowerCase();
-
       return destino.nome.toLowerCase().contains(termo) ||
           destino.cidade.toLowerCase().contains(termo) ||
           destino.categoria.toLowerCase().contains(termo);
@@ -834,38 +1262,43 @@ class _DestinoSearchDelegate extends SearchDelegate<_Destino?> {
 
     if (resultados.isEmpty) {
       return const Center(
-        child: Text(
-          'Nenhum destino encontrado.',
-          style: TextStyle(
-            color: AppColors.textSecondary,
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'Nenhum destino encontrado.\nExperimente outro termo.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              height: 1.5,
+            ),
           ),
         ),
       );
     }
 
     return ListView.separated(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       itemCount: resultados.length,
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final destino = resultados[index];
 
-        return ListTile(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          tileColor: AppColors.surface,
-          leading: CircleAvatar(
-            backgroundColor: destino.cor.withValues(alpha: 0.14),
-            child: Icon(
-              destino.icon,
-              color: destino.cor,
+        return Card(
+          margin: EdgeInsets.zero,
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: destino.cor.withOpacity(0.13),
+              child: Icon(destino.icone, color: destino.cor),
             ),
+            title: Text(
+              destino.nome,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(destino.cidade),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => close(context, destino),
           ),
-          title: Text(destino.nome),
-          subtitle: Text(destino.cidade),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => close(context, destino),
         );
       },
     );
