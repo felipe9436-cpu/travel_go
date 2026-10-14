@@ -1,67 +1,95 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../models/checklist_item.dart';
 import '../theme/app_colors.dart';
+import '../widgets/checklist_tile.dart';
 
 class ChecklistScreen extends StatefulWidget {
-  const ChecklistScreen({super.key});
+  final String? viagemId;
+
+  const ChecklistScreen({super.key, this.viagemId});
 
   @override
   State<ChecklistScreen> createState() => _ChecklistScreenState();
 }
 
 class _ChecklistScreenState extends State<ChecklistScreen> {
-  final List<_ChecklistItem> _itens = [
-    _ChecklistItem(
-      titulo: 'Passaporte',
-      categoria: 'Documentos',
-      concluido: true,
-      icon: Icons.badge_outlined,
-    ),
-    _ChecklistItem(
-      titulo: 'Seguro viagem',
-      categoria: 'Documentos',
-      concluido: true,
-      icon: Icons.shield_outlined,
-    ),
-    _ChecklistItem(
-      titulo: 'Reserva do hotel',
-      categoria: 'Reservas',
-      concluido: true,
-      icon: Icons.hotel_outlined,
-    ),
-    _ChecklistItem(
-      titulo: 'Comprar adaptador de tomada',
-      categoria: 'Compras',
-      concluido: false,
-      icon: Icons.power_outlined,
-    ),
-    _ChecklistItem(
-      titulo: 'Separar roupas',
-      categoria: 'Mala',
-      concluido: false,
-      icon: Icons.luggage_outlined,
-    ),
-    _ChecklistItem(
-      titulo: 'Carregador do celular',
-      categoria: 'Mala',
-      concluido: false,
-      icon: Icons.battery_charging_full_outlined,
-    ),
-    _ChecklistItem(
-      titulo: 'Fazer check-in do voo',
-      categoria: 'Viagem',
-      concluido: false,
-      icon: Icons.flight_takeoff_outlined,
-    ),
-    _ChecklistItem(
-      titulo: 'Baixar mapas offline',
-      categoria: 'Viagem',
-      concluido: false,
-      icon: Icons.map_outlined,
-    ),
-  ];
+  final List<ChecklistItem> _itens = [];
+  final _client = Supabase.instance.client;
+  bool _carregando = false;
+  bool _salvando = false;
+  String? _erroCarregamento;
 
-  final List<String> _categorias = [
+  @override
+  void initState() {
+    super.initState();
+    _carregarItens();
+  }
+
+  Future<void> _carregarItens() async {
+    final viagemId = _viagemId;
+    if (viagemId == null) {
+      if (mounted) setState(() { _itens.clear(); _carregando = false; });
+      return;
+    }
+    setState(() { _carregando = true; _erroCarregamento = null; });
+    try {
+      final dados = await _client.from('checklist_itens')
+          .select().eq('viagemId', viagemId).order('titulo');
+      if (!mounted || _viagemId != viagemId) return;
+      setState(() {
+        _itens..clear()..addAll(dados.map((e) => ChecklistItem.fromMap(e)));
+      });
+    } catch (e) {
+      if (mounted && _viagemId == viagemId) {
+        setState(() => _erroCarregamento = 'Não foi possível carregar o checklist: $e');
+      }
+    } finally {
+      if (mounted && _viagemId == viagemId) setState(() => _carregando = false);
+    }
+  }
+
+  Future<void> _salvarItem(ChecklistItem item) async {
+    await _client.from('checklist_itens').upsert(item.toMap());
+  }
+
+  Future<void> _excluirItem(String id) async {
+    await _client.from('checklist_itens').delete().eq('id', id);
+  }
+
+  Future<void> _alterarTodos({required bool concluido}) async {
+    final viagemId = _viagemId;
+    if (viagemId == null || _salvando) return;
+    setState(() => _salvando = true);
+    try {
+      await _client.from('checklist_itens')
+          .update({'concluido': concluido}).eq('viagemId', viagemId);
+      if (mounted && _viagemId == viagemId) await _carregarItens();
+    } catch (e) {
+      if (mounted) _mostrarMensagem('Erro ao atualizar os itens: $e');
+    } finally {
+      if (mounted) setState(() => _salvando = false);
+    }
+  }
+
+
+  String? get _viagemId => widget.viagemId;
+  List<ChecklistItem> get _itensDaViagem => _itens
+      .where((item) => item.viagemId == _viagemId && _viagemId != null)
+      .toList();
+
+  @override
+  void didUpdateWidget(covariant ChecklistScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.viagemId != widget.viagemId) {
+      _categoriaSelecionada = 'Todos';
+      _carregarItens();
+    }
+  }
+
+
+  static const List<String> _categorias = [
     'Todos',
     'Documentos',
     'Reservas',
@@ -71,823 +99,42 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   ];
 
   String _categoriaSelecionada = 'Todos';
+  int _contadorIds = 0;
 
-  int get _concluidos {
-    return _itens.where((item) => item.concluido).length;
-  }
+  int get _totalItens => _itensDaViagem.length;
 
-  int get _totalItens => _itens.length;
+  int get _concluidos =>
+      _itensDaViagem.where((item) => item.concluido).length;
 
-  double get _progresso {
-    if (_totalItens == 0) return 0;
+  double get _progresso =>
+      _totalItens == 0 ? 0 : _concluidos / _totalItens;
 
-    return _concluidos / _totalItens;
-  }
+  List<ChecklistItem> get _itensFiltrados {
+    final lista = _itensDaViagem.where((item) {
+      return _categoriaSelecionada == 'Todos' ||
+          item.categoria == _categoriaSelecionada;
+    }).toList();
 
-  List<_ChecklistItem> get _itensFiltrados {
-    if (_categoriaSelecionada == 'Todos') {
-      return _itens;
-    }
+    lista.sort((a, b) {
+      if (a.concluido != b.concluido) {
+        return a.concluido ? 1 : -1;
+      }
 
-    return _itens
-        .where(
-          (item) => item.categoria == _categoriaSelecionada,
-    )
-        .toList();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            SliverAppBar.large(
-              backgroundColor: AppColors.background,
-              surfaceTintColor: Colors.transparent,
-              title: const Text(
-                'Checklist',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              actions: [
-                IconButton.filledTonal(
-                  tooltip: 'Opções',
-                  onPressed: _abrirOpcoes,
-                  icon: const Icon(
-                    Icons.more_horiz,
-                  ),
-                ),
-                const SizedBox(width: 16),
-              ],
-            ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(
-                20,
-                0,
-                20,
-                110,
-              ),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  _buildHeader(),
-                  const SizedBox(height: 24),
-                  _buildProgressCard(),
-                  const SizedBox(height: 26),
-                  _buildCategoryFilters(),
-                  const SizedBox(height: 24),
-                  _buildListHeader(),
-                ]),
-              ),
-            ),
-            _buildItemsList(),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(
-                20,
-                26,
-                20,
-                100,
-              ),
-              sliver: SliverToBoxAdapter(
-                child: _buildTravelTip(),
-              ),
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _adicionarItem,
-        icon: const Icon(Icons.add),
-        label: const Text('Adicionar item'),
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Tudo pronto para viajar?',
-          style: Theme.of(context).textTheme.headlineMedium,
-        ),
-        const SizedBox(height: 7),
-        const Text(
-          'Organize documentos, malas, reservas e tudo o que precisa fazer antes da viagem.',
-          style: TextStyle(
-            color: AppColors.textSecondary,
-            height: 1.45,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildProgressCard() {
-    final completo = _totalItens > 0 &&
-        _concluidos == _totalItens;
-
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Container(
-        padding: const EdgeInsets.all(22),
-        decoration: const BoxDecoration(
-          gradient: AppColors.heroGradient,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: completo
-                        ? AppColors.success.withValues(alpha: 0.14)
-                        : AppColors.primary.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Icon(
-                    completo
-                        ? Icons.check_circle_outline
-                        : Icons.checklist_rounded,
-                    color: completo
-                        ? AppColors.success
-                        : AppColors.primary,
-                    size: 27,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment:
-                    CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        completo
-                            ? 'Tudo pronto!'
-                            : 'Progresso da viagem',
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 17,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        completo
-                            ? 'Você completou todos os itens.'
-                            : '$_concluidos de $_totalItens itens concluídos',
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Text(
-                  '${(_progresso * 100).toStringAsFixed(0)}%',
-                  style: TextStyle(
-                    color: completo
-                        ? AppColors.success
-                        : AppColors.primary,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 22),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: LinearProgressIndicator(
-                value: _progresso,
-                minHeight: 9,
-                backgroundColor: AppColors.border,
-                color: completo
-                    ? AppColors.success
-                    : AppColors.primary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '$_concluidos concluídos',
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-                ),
-                Text(
-                  '${_totalItens - _concluidos} restantes',
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCategoryFilters() {
-    return SizedBox(
-      height: 43,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: _categorias.length,
-        separatorBuilder: (_, __) =>
-        const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final categoria = _categorias[index];
-
-          return ChoiceChip(
-            label: Text(categoria),
-            selected:
-            _categoriaSelecionada == categoria,
-            showCheckmark: false,
-            onSelected: (_) {
-              setState(() {
-                _categoriaSelecionada = categoria;
-              });
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildListHeader() {
-    return Row(
-      children: [
-        const Expanded(
-          child: Column(
-            crossAxisAlignment:
-            CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Itens da viagem',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'Toque em um item para marcar como concluído',
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 13,
-                ),
-              ),
-            ],
-          ),
-        ),
-        Text(
-          '$_concluidos/$_totalItens',
-          style: const TextStyle(
-            color: AppColors.primary,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildItemsList() {
-    final itens = _itensFiltrados;
-
-    if (itens.isEmpty) {
-      return SliverPadding(
-        padding:
-        const EdgeInsets.symmetric(horizontal: 20),
-        sliver: SliverToBoxAdapter(
-          child: _buildEmptyState(),
-        ),
+      return a.titulo.toLowerCase().compareTo(
+        b.titulo.toLowerCase(),
       );
-    }
-
-    return SliverPadding(
-      padding:
-      const EdgeInsets.symmetric(horizontal: 20),
-      sliver: SliverList(
-        delegate: SliverChildBuilderDelegate(
-              (context, index) {
-            final item = itens[index];
-
-            return Padding(
-              padding:
-              const EdgeInsets.only(bottom: 10),
-              child: _ChecklistCard(
-                item: item,
-                onToggle: () => _alternarItem(item),
-                onDelete: () => _removerItem(item),
-                onTap: () => _abrirDetalhes(item),
-              ),
-            );
-          },
-          childCount: itens.length,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(30),
-        child: Column(
-          children: [
-            const Icon(
-              Icons.checklist_outlined,
-              color: AppColors.textMuted,
-              size: 48,
-            ),
-            const SizedBox(height: 15),
-            const Text(
-              'Nenhum item encontrado',
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 7),
-            const Text(
-              'Essa categoria ainda não possui itens.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 18),
-            OutlinedButton(
-              onPressed: () {
-                setState(() {
-                  _categoriaSelecionada = 'Todos';
-                });
-              },
-              child: const Text('Ver todos'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTravelTip() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(21),
-        child: Row(
-          crossAxisAlignment:
-          CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 45,
-              height: 45,
-              decoration: BoxDecoration(
-                color:
-                AppColors.cyan.withValues(alpha: 0.12),
-                borderRadius:
-                BorderRadius.circular(14),
-              ),
-              child: const Icon(
-                Icons.lightbulb_outline,
-                color: AppColors.cyan,
-              ),
-            ),
-            const SizedBox(width: 15),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment:
-                CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Dica de viagem',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                    ),
-                  ),
-                  SizedBox(height: 5),
-                  Text(
-                    'Separe documentos importantes e faça uma cópia digital antes de sair. Assim você evita problemas caso perca algum documento.',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      height: 1.45,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _alternarItem(_ChecklistItem item) {
-    setState(() {
-      item.concluido = !item.concluido;
     });
 
-    if (item.concluido) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '${item.titulo} concluído!',
-          ),
-          duration:
-          const Duration(milliseconds: 1300),
-        ),
-      );
-    }
+    return lista;
   }
 
-  void _adicionarItem() {
-    final controller = TextEditingController();
-    String categoria = 'Viagem';
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: AppColors.surface,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                24,
-                8,
-                24,
-                MediaQuery.viewInsetsOf(context).bottom +
-                    24,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment:
-                  CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Novo item',
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Adicione algo que você precisa fazer ou levar.',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    TextField(
-                      controller: controller,
-                      autofocus: true,
-                      decoration:
-                      const InputDecoration(
-                        labelText: 'Nome do item',
-                        hintText:
-                        'Ex.: Comprar seguro viagem',
-                        prefixIcon: Icon(
-                          Icons.checklist_outlined,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'Categoria',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final itemCategoria in [
-                          'Documentos',
-                          'Reservas',
-                          'Mala',
-                          'Compras',
-                          'Viagem',
-                        ])
-                          ChoiceChip(
-                            label: Text(itemCategoria),
-                            selected:
-                            categoria ==
-                                itemCategoria,
-                            onSelected: (_) {
-                              setModalState(() {
-                                categoria =
-                                    itemCategoria;
-                              });
-                            },
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: () {
-                          final nome =
-                          controller.text.trim();
-
-                          if (nome.isEmpty) {
-                            return;
-                          }
-
-                          setState(() {
-                            _itens.add(
-                              _ChecklistItem(
-                                titulo: nome,
-                                categoria: categoria,
-                                concluido: false,
-                                icon: _iconeCategoria(
-                                  categoria,
-                                ),
-                              ),
-                            );
-                          });
-
-                          Navigator.pop(context);
-
-                          ScaffoldMessenger.of(
-                            this.context,
-                          ).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Item adicionado ao checklist.',
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.add),
-                        label: const Text(
-                          'Adicionar item',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
+  String _novoId() {
+    _contadorIds++;
+    return '${DateTime.now().microsecondsSinceEpoch}_$_contadorIds';
   }
 
-  void _abrirDetalhes(_ChecklistItem item) {
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: AppColors.surface,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              24,
-              8,
-              24,
-              30,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment:
-              CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 55,
-                      height: 55,
-                      decoration: BoxDecoration(
-                        color: item.concluido
-                            ? AppColors.success
-                            .withValues(alpha: 0.12)
-                            : AppColors.primary
-                            .withValues(alpha: 0.12),
-                        borderRadius:
-                        BorderRadius.circular(17),
-                      ),
-                      child: Icon(
-                        item.icon,
-                        color: item.concluido
-                            ? AppColors.success
-                            : AppColors.primary,
-                        size: 27,
-                      ),
-                    ),
-                    const SizedBox(width: 15),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment:
-                        CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item.titulo,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleLarge,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            item.categoria,
-                            style: const TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () =>
-                          Navigator.pop(context),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                _InfoRow(
-                  icon: Icons.category_outlined,
-                  title: 'Categoria',
-                  value: item.categoria,
-                ),
-                const SizedBox(height: 14),
-                _InfoRow(
-                  icon: item.concluido
-                      ? Icons.check_circle_outline
-                      : Icons.radio_button_unchecked,
-                  title: 'Status',
-                  value: item.concluido
-                      ? 'Concluído'
-                      : 'Pendente',
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _alternarItem(item);
-                    },
-                    icon: Icon(
-                      item.concluido
-                          ? Icons.undo
-                          : Icons.check,
-                    ),
-                    label: Text(
-                      item.concluido
-                          ? 'Marcar como pendente'
-                          : 'Marcar como concluído',
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _removerItem(item);
-                    },
-                    icon: const Icon(
-                      Icons.delete_outline,
-                    ),
-                    label: const Text(
-                      'Excluir item',
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _removerItem(_ChecklistItem item) {
-    final index = _itens.indexOf(item);
-
-    if (index == -1) return;
-
-    setState(() {
-      _itens.removeAt(index);
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '${item.titulo} removido.',
-        ),
-        action: SnackBarAction(
-          label: 'DESFAZER',
-          onPressed: () {
-            setState(() {
-              _itens.insert(index, item);
-            });
-          },
-        ),
-      ),
-    );
-  }
-
-  void _abrirOpcoes() {
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: AppColors.surface,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              20,
-              8,
-              20,
-              24,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(
-                    Icons.done_all,
-                    color: AppColors.success,
-                  ),
-                  title: const Text(
-                    'Marcar tudo como concluído',
-                  ),
-                  onTap: () {
-                    setState(() {
-                      for (final item in _itens) {
-                        item.concluido = true;
-                      }
-                    });
-
-                    Navigator.pop(context);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(
-                    Icons.restart_alt,
-                  ),
-                  title: const Text(
-                    'Desmarcar todos',
-                  ),
-                  onTap: () {
-                    setState(() {
-                      for (final item in _itens) {
-                        item.concluido = false;
-                      }
-                    });
-
-                    Navigator.pop(context);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(
-                    Icons.delete_sweep_outlined,
-                    color: AppColors.error,
-                  ),
-                  title: const Text(
-                    'Limpar itens concluídos',
-                  ),
-                  onTap: () {
-                    setState(() {
-                      _itens.removeWhere(
-                            (item) => item.concluido,
-                      );
-                    });
-
-                    Navigator.pop(context);
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
+  int _indiceItem(String id) {
+    return _itens.indexWhere((item) => item.id == id && item.viagemId == _viagemId);
   }
 
   IconData _iconeCategoria(String categoria) {
@@ -904,198 +151,867 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
         return Icons.travel_explore_outlined;
     }
   }
-}
 
-class _ChecklistItem {
-  final String titulo;
-  final String categoria;
-  bool concluido;
-  final IconData icon;
-
-  _ChecklistItem({
-    required this.titulo,
-    required this.categoria,
-    required this.concluido,
-    required this.icon,
-  });
-}
-
-class _ChecklistCard extends StatelessWidget {
-  final _ChecklistItem item;
-  final VoidCallback onToggle;
-  final VoidCallback onDelete;
-  final VoidCallback onTap;
-
-  const _ChecklistCard({
-    required this.item,
-    required this.onToggle,
-    required this.onDelete,
-    required this.onTap,
-  });
+  void _mostrarMensagem(String mensagem) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(mensagem),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Dismissible(
-      key: ValueKey(
-        '${item.titulo}_${item.categoria}',
-      ),
-      direction: DismissDirection.endToStart,
-      confirmDismiss: (_) async {
-        onDelete();
-        return false;
-      },
-      background: Container(
-        decoration: BoxDecoration(
-          color: AppColors.error,
-          borderRadius: BorderRadius.circular(20),
+    final itens = _itensFiltrados;
+    final temViagem = _viagemId != null;
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        backgroundColor: AppColors.background,
+        surfaceTintColor: Colors.transparent,
+        title: const Text(
+          'Checklist',
+          style: TextStyle(fontWeight: FontWeight.w900),
         ),
-        alignment: Alignment.centerRight,
-        padding:
-        const EdgeInsets.only(right: 24),
-        child: const Icon(
-          Icons.delete_outline,
-          color: Colors.white,
-        ),
+        actions: [
+          IconButton(
+            tooltip: 'Opções do checklist',
+            onPressed: temViagem ? _abrirOpcoes : null,
+            icon: const Icon(Icons.more_vert),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
-      child: Card(
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 15,
-              vertical: 12,
-            ),
-            child: Row(
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final margem =
+            constraints.maxWidth >= 800 ? 36.0 : 20.0;
+
+            return ListView(
+              padding: EdgeInsets.fromLTRB(
+                margem,
+                20,
+                margem,
+                110,
+              ),
               children: [
-                Checkbox(
-                  value: item.concluido,
-                  onChanged: (_) => onToggle(),
-                ),
-                Container(
-                  width: 43,
-                  height: 43,
-                  decoration: BoxDecoration(
-                    color: item.concluido
-                        ? AppColors.success
-                        .withValues(alpha: 0.10)
-                        : AppColors.surfaceElevated,
-                    borderRadius:
-                    BorderRadius.circular(13),
+                if (!temViagem)
+                  _buildSemViagem()
+                else ...[
+                  Text(
+                    'Organize sua viagem',
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineMedium
+                        ?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                  child: Icon(
-                    item.icon,
-                    size: 21,
-                    color: item.concluido
-                        ? AppColors.success
-                        : AppColors.textSecondary,
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Adicione suas tarefas e acompanhe '
+                        'o que ainda falta preparar.',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      height: 1.5,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 13),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment:
-                    CrossAxisAlignment.start,
+                  const SizedBox(height: 24),
+                  _buildProgresso(),
+                  const SizedBox(height: 28),
+                  _buildFiltros(),
+                  const SizedBox(height: 28),
+                  Row(
                     children: [
-                      Text(
-                        item.titulo,
-                        maxLines: 2,
-                        overflow:
-                        TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: item.concluido
-                              ? AppColors.textMuted
-                              : AppColors.textPrimary,
-                          fontWeight: FontWeight.w700,
-                          decoration: item.concluido
-                              ? TextDecoration
-                              .lineThrough
-                              : null,
-                          decorationColor:
-                          AppColors.textMuted,
+                      const Expanded(
+                        child: Text(
+                          'Itens da viagem',
+                          style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 4),
                       Text(
-                        item.categoria,
-                        style: TextStyle(
-                          color: item.concluido
-                              ? AppColors.textMuted
-                              : AppColors.textSecondary,
-                          fontSize: 11,
+                        '$_concluidos/$_totalItens',
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(
-                  Icons.chevron_right,
-                  color: AppColors.textMuted,
-                  size: 19,
-                ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Toque em uma tarefa para ver os detalhes '
+                        'ou marque o checkbox para concluí-la.',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (_carregando)
+                    const Center(child: Padding(padding: EdgeInsets.all(30), child: CircularProgressIndicator()))
+                  else if (_erroCarregamento != null)
+                    Column(children: [Text(_erroCarregamento!), TextButton(onPressed: _carregarItens, child: const Text('Tentar novamente'))])
+                  else if (itens.isEmpty)
+                      _buildVazio()
+                    else
+                      ...itens.map(
+                            (item) => Padding(
+                          key: ValueKey(item.id),
+                          padding: const EdgeInsets.only(
+                            bottom: 10,
+                          ),
+                          child: ChecklistTile(
+                            item: item,
+                            onToggle: () => _alternarItem(item),
+                            onDelete: () =>
+                                _confirmarExclusao(item),
+                            onTap: () => _abrirDetalhes(item),
+                          ),
+                        ),
+                      ),
+                ],
               ],
+            );
+          },
+        ),
+      ),
+      floatingActionButton: temViagem && _itensDaViagem.isNotEmpty
+          ? FloatingActionButton.extended(
+        onPressed: _salvando ? null : () => _abrirFormulario(),
+        icon: const Icon(Icons.add),
+        label: const Text('Adicionar item'),
+      )
+          : null,
+    );
+  }
+
+  Widget _buildSemViagem() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          children: [
+            const Icon(Icons.travel_explore_outlined,
+                color: AppColors.primary, size: 48),
+            const SizedBox(height: 16),
+            const Text('Selecione uma viagem',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 10),
+            const Text(
+              'Crie ou selecione uma viagem na tela Início para organizar seu checklist.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.textSecondary, height: 1.5),
             ),
-          ),
+          ],
         ),
       ),
     );
   }
-}
 
-class _InfoRow extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String value;
+  Widget _buildProgresso() {
+    final completo =
+        _totalItens > 0 && _concluidos == _totalItens;
 
-  const _InfoRow({
-    required this.icon,
-    required this.title,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: AppColors.surfaceElevated,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(
-            icon,
-            color: AppColors.textSecondary,
-            size: 20,
-          ),
-        ),
-        const SizedBox(width: 13),
-        Expanded(
-          child: Column(
-            crossAxisAlignment:
-            CrossAxisAlignment.start,
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: AppColors.heroGradient,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: AppColors.textMuted,
-                  fontSize: 11,
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceElevated,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  completo
+                      ? Icons.check_circle_outline
+                      : Icons.checklist_outlined,
+                  color: completo
+                      ? AppColors.success
+                      : AppColors.primary,
+                  size: 28,
                 ),
               ),
-              const SizedBox(height: 3),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      completo
+                          ? 'Tudo pronto!'
+                          : 'Progresso da viagem',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      '$_concluidos de $_totalItens itens concluídos',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               Text(
-                value,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontWeight: FontWeight.w600,
+                '${(_progresso * 100).round()}%',
+                style: TextStyle(
+                  color: completo
+                      ? AppColors.success
+                      : AppColors.primary,
+                  fontSize: 23,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 20),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: LinearProgressIndicator(
+              value: _progresso,
+              minHeight: 9,
+              backgroundColor: AppColors.border,
+              color: completo
+                  ? AppColors.success
+                  : AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment:
+            MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '$_concluidos concluídos',
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                '${_totalItens - _concluidos} restantes',
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFiltros() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Categorias',
+          style: TextStyle(
+            fontSize: 19,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 43,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _categorias.length,
+            separatorBuilder: (context, index) =>
+            const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final categoria = _categorias[index];
+
+              return ChoiceChip(
+                label: Text(categoria),
+                selected:
+                _categoriaSelecionada == categoria,
+                showCheckmark: false,
+                onSelected: (selecionado) {
+                  setState(() {
+                    _categoriaSelecionada = categoria;
+                  });
+                },
+              );
+            },
           ),
         ),
       ],
     );
   }
+
+  Widget _buildVazio() {
+    final vazioGeral = _itensDaViagem.isEmpty;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 24,
+          vertical: 32,
+        ),
+        child: Column(
+          children: [
+            const Icon(
+              Icons.checklist_outlined,
+              size: 48,
+              color: AppColors.primary,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              vazioGeral
+                  ? 'Seu checklist está vazio'
+                  : 'Nenhum item nesta categoria',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              vazioGeral
+                  ? 'Comece adicionando as tarefas '
+                  'que precisa preparar para sua viagem.'
+                  : 'Selecione outra categoria para '
+                  'visualizar seus itens.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 20),
+            if (vazioGeral)
+              FilledButton.icon(
+                onPressed: _salvando ? null : () => _abrirFormulario(),
+                icon: const Icon(Icons.add),
+                label: const Text('Criar primeiro item'),
+              )
+            else
+              OutlinedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _categoriaSelecionada = 'Todos';
+                  });
+                },
+                icon: const Icon(Icons.list),
+                label: const Text('Ver todos'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _alternarItem(ChecklistItem item) async {
+    if (_salvando) return;
+    setState(() => _salvando = true);
+    final atualizado = item.alternarConclusao();
+    try {
+      await _salvarItem(atualizado);
+      if (!mounted) return;
+      final indice = _indiceItem(item.id);
+      if (indice >= 0) setState(() => _itens[indice] = atualizado);
+      if (atualizado.concluido) _mostrarMensagem('${atualizado.titulo} concluído!');
+    } catch (e) {
+      if (mounted) _mostrarMensagem('Erro ao atualizar item: $e');
+    } finally {
+      if (mounted) setState(() => _salvando = false);
+    }
+  }
+
+  Future<void> _abrirFormulario({
+    ChecklistItem? item,
+  }) async {
+    if (_viagemId == null) return;
+    final tituloController = TextEditingController(
+      text: item?.titulo ?? '',
+    );
+
+    final observacaoController = TextEditingController(
+      text: item?.observacao ?? '',
+    );
+
+    var categoria = item?.categoria ?? 'Viagem';
+    String? erro;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: AppColors.surface,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, atualizarModal) {
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  22,
+                  8,
+                  22,
+                  MediaQuery.viewInsetsOf(context).bottom + 24,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item == null
+                            ? 'Adicionar item'
+                            : 'Editar item',
+                        style: Theme.of(context)
+                            .textTheme
+                            .headlineSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Organize as tarefas da sua viagem.',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      TextField(
+                        controller: tituloController,
+                        autofocus: true,
+                        textCapitalization:
+                        TextCapitalization.sentences,
+                        decoration: const InputDecoration(
+                          labelText: 'Nome do item *',
+                          hintText:
+                          'Ex.: Separar documentos',
+                          prefixIcon: Icon(
+                            Icons.checklist_outlined,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: observacaoController,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: 'Observação (opcional)',
+                          hintText: 'Detalhes da tarefa...',
+                          prefixIcon: Icon(
+                            Icons.notes_outlined,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Categoria',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final opcao
+                          in _categorias.skip(1))
+                            ChoiceChip(
+                              label: Text(opcao),
+                              selected: categoria == opcao,
+                              showCheckmark: false,
+                              onSelected: (selecionado) {
+                                atualizarModal(() {
+                                  categoria = opcao;
+                                });
+                              },
+                            ),
+                        ],
+                      ),
+                      if (erro != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          erro!,
+                          style: const TextStyle(
+                            color: AppColors.error,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 26),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _salvando ? null : () async {
+                            final titulo = tituloController.text.trim();
+                            final observacao = observacaoController.text.trim();
+                            if (titulo.isEmpty) {
+                              atualizarModal(() => erro = 'Digite o nome do item.');
+                              return;
+                            }
+                            final viagemId = _viagemId;
+                            if (viagemId == null) return;
+                            final atualizado = ChecklistItem(
+                              id: item?.id ?? _novoId(), viagemId: viagemId,
+                              titulo: titulo, categoria: categoria,
+                              concluido: item?.concluido ?? false,
+                              observacao: observacao.isEmpty ? null : observacao,
+                            );
+                            atualizarModal(() => erro = null);
+                            setState(() => _salvando = true);
+                            try {
+                              await _salvarItem(atualizado);
+                              if (!mounted || _viagemId != viagemId) return;
+                              setState(() {
+                                final indice = _indiceItem(atualizado.id);
+                                if (indice >= 0) { _itens[indice] = atualizado; }
+                                else { _itens.add(atualizado); }
+                                _categoriaSelecionada = 'Todos';
+                              });
+                              if (sheetContext.mounted) Navigator.pop(sheetContext);
+                            } catch (e) {
+                              if (sheetContext.mounted) atualizarModal(() => erro = 'Erro ao salvar: $e');
+                            } finally {
+                              if (mounted) setState(() => _salvando = false);
+                            }
+                          },
+                          icon: Icon(
+                            item == null
+                                ? Icons.add
+                                : Icons.save_outlined,
+                          ),
+                          label: Text(
+                            item == null
+                                ? 'Adicionar item'
+                                : 'Salvar alterações',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    await Future<void>.delayed(
+      const Duration(milliseconds: 300),
+    );
+
+    tituloController.dispose();
+    observacaoController.dispose();
+  }
+
+  void _abrirDetalhes(ChecklistItem item) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: AppColors.surface,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(
+              22,
+              8,
+              22,
+              26,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment:
+              CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      _iconeCategoria(item.categoria),
+                      color: item.concluido
+                          ? AppColors.success
+                          : AppColors.primary,
+                      size: 30,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        item.titulo,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Fechar',
+                      onPressed: () =>
+                          Navigator.pop(sheetContext),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  item.categoria,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                if (item.observacao != null &&
+                    item.observacao!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    item.observacao!,
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+                const Divider(height: 32),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    item.concluido
+                        ? Icons.check_circle_outline
+                        : Icons.radio_button_unchecked,
+                    color: item.concluido
+                        ? AppColors.success
+                        : AppColors.primary,
+                  ),
+                  title: const Text('Status'),
+                  subtitle: Text(
+                    item.concluido
+                        ? 'Concluído'
+                        : 'Pendente',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      Navigator.pop(sheetContext);
+                      _alternarItem(item);
+                    },
+                    icon: Icon(
+                      item.concluido
+                          ? Icons.undo
+                          : Icons.check,
+                    ),
+                    label: Text(
+                      item.concluido
+                          ? 'Marcar como pendente'
+                          : 'Marcar como concluído',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _abrirFormulario(item: item);
+                        },
+                        icon: const Icon(
+                          Icons.edit_outlined,
+                        ),
+                        label: const Text('Editar'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _confirmarExclusao(item);
+                        },
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: AppColors.error,
+                        ),
+                        label: const Text(
+                          'Excluir',
+                          style: TextStyle(
+                            color: AppColors.error,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmarExclusao(
+      ChecklistItem item,
+      ) async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Excluir item?'),
+        content: Text(
+          'Deseja excluir "${item.titulo}"?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true || !mounted) return;
+
+    try {
+      await _excluirItem(item.id);
+      if (!mounted) return;
+      setState(() => _itens.removeWhere((e) => e.id == item.id));
+      _mostrarMensagem('${item.titulo} removido.');
+    } catch (e) {
+      if (mounted) _mostrarMensagem('Erro ao excluir: $e');
+    }
+  }
+
+  void _abrirOpcoes() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: AppColors.surface,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              12,
+              8,
+              12,
+              20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  enabled: _itensDaViagem.isNotEmpty,
+                  leading: const Icon(
+                    Icons.done_all,
+                    color: AppColors.success,
+                  ),
+                  title: const Text(
+                    'Marcar tudo como concluído',
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _alterarTodos(concluido: true);
+                  },
+                ),
+                ListTile(
+                  enabled: _itensDaViagem.isNotEmpty,
+                  leading: const Icon(
+                    Icons.restart_alt,
+                  ),
+                  title: const Text(
+                    'Desmarcar todos',
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _alterarTodos(concluido: false);
+                  },
+                ),
+                ListTile(
+                  enabled: _concluidos > 0,
+                  leading: const Icon(
+                    Icons.delete_sweep_outlined,
+                    color: AppColors.error,
+                  ),
+                  title: const Text(
+                    'Limpar itens concluídos',
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _confirmarLimpeza();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmarLimpeza() async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text(
+          'Limpar itens concluídos?',
+        ),
+        content: Text(
+          'Serão removidos $_concluidos itens concluídos.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, true),
+            child: const Text('Limpar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true || !mounted) return;
+
+    try {
+      final viagemId = _viagemId;
+      if (viagemId == null) return;
+      await _client.from('checklist_itens').delete()
+          .eq('viagemId', viagemId).eq('concluido', true);
+      if (mounted && _viagemId == viagemId) await _carregarItens();
+    } catch (e) {
+      if (mounted) _mostrarMensagem('Erro ao limpar checklist: $e');
+    }
+  }
 }
+

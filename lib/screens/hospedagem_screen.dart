@@ -1,1237 +1,1235 @@
-import 'package:flutter/material.dart';
 
+import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
+import '../models/hospedagem.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class HospedagemScreen extends StatefulWidget {
-  const HospedagemScreen({super.key});
+final String? viagemId;
 
-  @override
-  State<HospedagemScreen> createState() => _HospedagemScreenState();
+const HospedagemScreen({super.key, this.viagemId});
+
+@override
+State<HospedagemScreen> createState() => _HospedagemScreenState();
 }
 
 class _HospedagemScreenState extends State<HospedagemScreen> {
-  final List<_Hospedagem> _hospedagens = [
-    const _Hospedagem(
-      nome: 'Hotel Le Central',
-      cidade: 'Paris, França',
-      endereco: '15 Rue de Rivoli',
-      checkIn: '12 Dez',
-      checkOut: '20 Dez',
-      noites: 8,
-      valor: 'R\$ 3.240',
-      nota: 4.8,
-      icon: Icons.hotel_rounded,
-    ),
-    const _Hospedagem(
-      nome: 'Maison de Paris',
-      cidade: 'Paris, França',
-      endereco: '28 Rue Saint-Honoré',
-      checkIn: '20 Dez',
-      checkOut: '22 Dez',
-      noites: 2,
-      valor: 'R\$ 890',
-      nota: 4.6,
-      icon: Icons.apartment_rounded,
-    ),
-  ];
+final List<_Hospedagem> _hospedagens = [];
+final _client = Supabase.instance.client;
+bool _carregando = false;
+bool _salvando = false;
+String? _erroCarregamento;
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            SliverAppBar.large(
-              backgroundColor: AppColors.background,
-              surfaceTintColor: Colors.transparent,
-              title: const Text(
-                'Hospedagem',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              actions: [
-                IconButton.filledTonal(
-                  tooltip: 'Pesquisar',
-                  onPressed: _pesquisar,
-                  icon: const Icon(Icons.search),
-                ),
-                const SizedBox(width: 16),
-              ],
-            ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(
-                20,
-                0,
-                20,
-                110,
-              ),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  _buildHeader(),
-                  const SizedBox(height: 24),
-                  _buildSummary(),
-                  const SizedBox(height: 28),
-                  _buildSectionTitle(),
-                  const SizedBox(height: 16),
-                ]),
-              ),
-            ),
-            _buildHospedagens(),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(
-                20,
-                28,
-                20,
-                100,
-              ),
-              sliver: SliverToBoxAdapter(
-                child: _buildBookingTip(),
-              ),
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _abrirAdicionarHospedagem,
-        icon: const Icon(Icons.add),
-        label: const Text('Adicionar hospedagem'),
-      ),
-    );
-  }
+@override
+void initState() {
+super.initState();
+_carregarHospedagens();
+}
 
-  Widget _buildHeader() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Onde você vai ficar?',
-          style: Theme.of(context).textTheme.headlineMedium,
-        ),
-        const SizedBox(height: 7),
-        const Text(
-          'Organize suas reservas e tenha todos os detalhes da hospedagem em um só lugar.',
-          style: TextStyle(
-            color: AppColors.textSecondary,
-            height: 1.45,
-          ),
-        ),
-      ],
-    );
-  }
+Future<void> _carregarHospedagens() async {
+final viagemId = widget.viagemId;
+if (viagemId == null) {
+if (mounted) setState(() { _hospedagens.clear(); _erroCarregamento = null; });
+return;
+}
+setState(() { _carregando = true; _erroCarregamento = null; });
+try {
+final rows = await _client.from('hospedagens').select()
+    .eq('viagemId', viagemId).order('checkIn');
+if (!mounted || widget.viagemId != viagemId) return;
+setState(() {
+_hospedagens
+..clear()
+..addAll(rows.map((row) => _Hospedagem.fromModel(Hospedagem.fromMap(row))));
+});
+} catch (e) {
+if (mounted && widget.viagemId == viagemId) {
+setState(() => _erroCarregamento = 'Não foi possível carregar as hospedagens: $e');
+}
+} finally {
+if (mounted && widget.viagemId == viagemId) setState(() => _carregando = false);
+}
+}
 
-  Widget _buildSummary() {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Container(
-        decoration: const BoxDecoration(
-          gradient: AppColors.heroGradient,
-        ),
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.13),
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: const Icon(
-                    Icons.hotel_rounded,
-                    color: AppColors.primary,
-                    size: 25,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Sua hospedagem',
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        '2 reservas • 10 noites',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(
-                  Icons.verified_outlined,
-                  color: AppColors.success,
-                ),
-              ],
-            ),
-            const SizedBox(height: 22),
-            const Divider(
-              color: AppColors.border,
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: _SummaryItem(
-                    icon: Icons.nights_stay_outlined,
-                    value: '10',
-                    label: 'Noites',
-                  ),
-                ),
-                Expanded(
-                  child: _SummaryItem(
-                    icon: Icons.hotel_outlined,
-                    value: '2',
-                    label: 'Reservas',
-                  ),
-                ),
-                const Expanded(
-                  child: _SummaryItem(
-                    icon: Icons.payments_outlined,
-                    value: 'R\$ 4.130',
-                    label: 'Total',
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+void _avisarErro(Object e) {
+if (!mounted) return;
+ScaffoldMessenger.of(context).showSnackBar(
+SnackBar(content: Text('Erro ao salvar no Supabase: $e')),
+);
+}
 
-  Widget _buildSectionTitle() {
-    return Row(
-      children: [
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Minhas reservas',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'Suas hospedagens durante a viagem',
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 13,
-                ),
-              ),
-            ],
-          ),
-        ),
-        PopupMenuButton<String>(
-          tooltip: 'Ordenar',
-          onSelected: (value) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Ordenação: $value'),
-              ),
-            );
-          },
-          itemBuilder: (context) => const [
-            PopupMenuItem(
-              value: 'Entrada',
-              child: Text('Por check-in'),
-            ),
-            PopupMenuItem(
-              value: 'Valor',
-              child: Text('Por valor'),
-            ),
-            PopupMenuItem(
-              value: 'Nota',
-              child: Text('Por avaliação'),
-            ),
-          ],
-          icon: const Icon(Icons.sort),
-        ),
-      ],
-    );
-  }
 
-  Widget _buildHospedagens() {
-    if (_hospedagens.isEmpty) {
-      return SliverPadding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        sliver: SliverToBoxAdapter(
-          child: _buildEmptyState(),
-        ),
-      );
-    }
+List<_Hospedagem> get _hospedagensDaViagem {
+final id = widget.viagemId;
+if (id == null) return [];
+return _hospedagens.where((h) => h.viagemId == id).toList();
+}
 
-    return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      sliver: SliverList(
-        delegate: SliverChildBuilderDelegate(
-              (context, index) {
-            final hospedagem = _hospedagens[index];
+@override
+void didUpdateWidget(covariant HospedagemScreen oldWidget) {
+super.didUpdateWidget(oldWidget);
+if (oldWidget.viagemId != widget.viagemId) {
+_busca = '';
+_ordenacao = 'Check-in';
+_hospedagens.clear();
+_carregarHospedagens();
+}
+}
 
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 14),
-              child: _HospedagemCard(
-                hospedagem: hospedagem,
-                onTap: () => _abrirDetalhes(hospedagem),
-                onDelete: () => _removerHospedagem(index),
-              ),
-            );
-          },
-          childCount: _hospedagens.length,
-        ),
-      ),
-    );
-  }
+String _busca = '';
+String _ordenacao = 'Check-in';
 
-  Widget _buildEmptyState() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          children: [
-            Container(
-              width: 70,
-              height: 70,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.hotel_outlined,
-                color: AppColors.primary,
-                size: 34,
-              ),
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Nenhuma hospedagem',
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 19,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Adicione sua primeira hospedagem para organizar sua viagem.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.textSecondary,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: _abrirAdicionarHospedagem,
-              icon: const Icon(Icons.add),
-              label: const Text('Adicionar hospedagem'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+int get _totalNoites => _hospedagensDaViagem.fold(
+0,
+(total, h) => total + h.noites,
+);
 
-  Widget _buildBookingTip() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(21),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 45,
-              height: 45,
-              decoration: BoxDecoration(
-                color: AppColors.blue.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Icon(
-                Icons.info_outline,
-                color: AppColors.blue,
-              ),
-            ),
-            const SizedBox(width: 15),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Dica',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                    ),
-                  ),
-                  SizedBox(height: 5),
-                  Text(
-                    'Guarde endereço, horário de check-in e informações da reserva para encontrar tudo rapidamente durante a viagem.',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      height: 1.45,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+double get _valorTotal => _hospedagensDaViagem.fold(
+0.0,
+(total, h) => total + (h.valor ?? 0),
+);
 
-  void _abrirAdicionarHospedagem() {
-    final nomeController = TextEditingController();
-    final cidadeController = TextEditingController();
-    final enderecoController = TextEditingController();
-    final valorController = TextEditingController();
+List<_Hospedagem> get _listaFiltrada {
+final termo = _busca.trim().toLowerCase();
 
-    DateTime? checkIn;
-    DateTime? checkOut;
+final lista = _hospedagensDaViagem.where((h) {
+return h.nome.toLowerCase().contains(termo) ||
+h.cidade.toLowerCase().contains(termo) ||
+h.endereco.toLowerCase().contains(termo);
+}).toList();
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: AppColors.surface,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                24,
-                8,
-                24,
-                MediaQuery.viewInsetsOf(context).bottom + 24,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Nova hospedagem',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Cadastre os detalhes da sua reserva.',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    TextField(
-                      controller: nomeController,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Nome da hospedagem',
-                        hintText: 'Ex.: Hotel Le Central',
-                        prefixIcon: Icon(Icons.hotel_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: cidadeController,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Cidade / País',
-                        hintText: 'Ex.: Paris, França',
-                        prefixIcon: Icon(Icons.public),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: enderecoController,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Endereço',
-                        hintText: 'Ex.: Rue de Rivoli, 15',
-                        prefixIcon: Icon(Icons.location_on_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: valorController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Valor da reserva',
-                        hintText: 'Ex.: 1500,00',
-                        prefixIcon: Icon(Icons.payments_outlined),
-                        prefixText: 'R\$ ',
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () async {
-                              final data = await _selecionarData(
-                                context,
-                                checkIn,
-                              );
+switch (_ordenacao) {
+case 'Valor':
+lista.sort(
+(a, b) => (b.valor ?? 0).compareTo(a.valor ?? 0),
+);
+break;
+case 'Nome':
+lista.sort((a, b) => a.nome.compareTo(b.nome));
+break;
+default:
+lista.sort((a, b) {
+if (a.checkIn == null) return 1;
+if (b.checkIn == null) return -1;
+return a.checkIn!.compareTo(b.checkIn!);
+});
+}
 
-                              if (data != null) {
-                                setModalState(() {
-                                  checkIn = data;
-                                });
-                              }
-                            },
-                            icon: const Icon(
-                              Icons.login_outlined,
-                            ),
-                            label: Text(
-                              checkIn == null
-                                  ? 'Check-in'
-                                  : _formatarData(checkIn!),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () async {
-                              final data = await _selecionarData(
-                                context,
-                                checkOut,
-                              );
+return lista;
+}
 
-                              if (data != null) {
-                                setModalState(() {
-                                  checkOut = data;
-                                });
-                              }
-                            },
-                            icon: const Icon(
-                              Icons.logout_outlined,
-                            ),
-                            label: Text(
-                              checkOut == null
-                                  ? 'Check-out'
-                                  : _formatarData(checkOut!),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: () {
-                          if (nomeController.text.trim().isEmpty ||
-                              cidadeController.text.trim().isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Preencha pelo menos nome e cidade.',
-                                ),
-                              ),
-                            );
-                            return;
-                          }
+String _moeda(double valor) {
+final partes = valor.toStringAsFixed(2).split('.');
+final inteiro = partes[0];
+final buffer = StringBuffer();
 
-                          final novaHospedagem = _Hospedagem(
-                            nome: nomeController.text.trim(),
-                            cidade: cidadeController.text.trim(),
-                            endereco: enderecoController.text.trim().isEmpty
-                                ? 'Endereço não informado'
-                                : enderecoController.text.trim(),
-                            checkIn: checkIn == null
-                                ? 'A definir'
-                                : _formatarData(checkIn!),
-                            checkOut: checkOut == null
-                                ? 'A definir'
-                                : _formatarData(checkOut!),
-                            noites: _calcularNoites(
-                              checkIn,
-                              checkOut,
-                            ),
-                            valor: valorController.text.trim().isEmpty
-                                ? 'Não informado'
-                                : 'R\$ ${valorController.text.trim()}',
-                            nota: 0,
-                            icon: Icons.hotel_rounded,
-                          );
+for (var i = 0; i < inteiro.length; i++) {
+if (i > 0 && (inteiro.length - i) % 3 == 0) {
+buffer.write('.');
+}
+buffer.write(inteiro[i]);
+}
 
-                          setState(() {
-                            _hospedagens.add(novaHospedagem);
-                          });
+return 'R\$ ${buffer.toString()},${partes[1]}';
+}
 
-                          Navigator.pop(context);
+String _data(DateTime? data) {
+if (data == null) return 'A definir';
 
-                          ScaffoldMessenger.of(this.context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Hospedagem adicionada à viagem.',
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.add),
-                        label: const Text('Adicionar hospedagem'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
+const meses = [
+'Jan', 'Fev', 'Mar', 'Abr',
+'Mai', 'Jun', 'Jul', 'Ago',
+'Set', 'Out', 'Nov', 'Dez',
+];
 
-  Future<DateTime?> _selecionarData(
-      BuildContext context,
-      DateTime? inicial,
-      ) {
-    return showDatePicker(
-      context: context,
-      initialDate: inicial ?? DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2035),
-    );
-  }
+return '${data.day} ${meses[data.month - 1]} ${data.year}';
+}
 
-  int _calcularNoites(
-      DateTime? inicio,
-      DateTime? fim,
-      ) {
-    if (inicio == null || fim == null) {
-      return 0;
-    }
+double? _lerValor(String texto) {
+var valor = texto.trim().replaceAll('R\$', '').replaceAll(' ', '');
 
-    final diferenca = fim.difference(inicio).inDays;
+if (valor.isEmpty) return null;
 
-    return diferenca < 0 ? 0 : diferenca;
-  }
+if (valor.contains(',')) {
+valor = valor.replaceAll('.', '').replaceAll(',', '.');
+}
 
-  String _formatarData(DateTime data) {
-    const meses = [
-      'Jan',
-      'Fev',
-      'Mar',
-      'Abr',
-      'Mai',
-      'Jun',
-      'Jul',
-      'Ago',
-      'Set',
-      'Out',
-      'Nov',
-      'Dez',
-    ];
+return double.tryParse(valor);
+}
 
-    return '${data.day} ${meses[data.month - 1]}';
-  }
+@override
+Widget build(BuildContext context) {
+final temHospedagens = _hospedagensDaViagem.isNotEmpty;
 
-  void _abrirDetalhes(_Hospedagem hospedagem) {
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: AppColors.surface,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              24,
-              8,
-              24,
-              30,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(17),
-                      ),
-                      child: const Icon(
-                        Icons.hotel_rounded,
-                        color: AppColors.primary,
-                        size: 29,
-                      ),
-                    ),
-                    const SizedBox(width: 15),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            hospedagem.nome,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            hospedagem.cidade,
-                            style: const TextStyle(
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                _DetailRow(
-                  icon: Icons.location_on_outlined,
-                  title: 'Endereço',
-                  value: hospedagem.endereco,
-                ),
-                const SizedBox(height: 14),
-                _DetailRow(
-                  icon: Icons.login_outlined,
-                  title: 'Check-in',
-                  value: hospedagem.checkIn,
-                ),
-                const SizedBox(height: 14),
-                _DetailRow(
-                  icon: Icons.logout_outlined,
-                  title: 'Check-out',
-                  value: hospedagem.checkOut,
-                ),
-                const SizedBox(height: 14),
-                _DetailRow(
-                  icon: Icons.nights_stay_outlined,
-                  title: 'Noites',
-                  value: hospedagem.noites == 0
-                      ? 'Não informado'
-                      : '${hospedagem.noites} noites',
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(this.context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Edição estará disponível em breve.',
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.edit_outlined),
-                        label: const Text('Editar'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    IconButton.filled(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(this.context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'O mapa será integrado futuramente.',
-                            ),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.map_outlined),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+return Scaffold(
+backgroundColor: AppColors.background,
+appBar: AppBar(
+title: const Text(
+'Hospedagem',
+style: TextStyle(fontWeight: FontWeight.w900),
+),
+backgroundColor: AppColors.background,
+surfaceTintColor: Colors.transparent,
+actions: [
+if (temHospedagens)
+IconButton(
+tooltip: 'Pesquisar hospedagem',
+onPressed: _abrirPesquisa,
+icon: const Icon(Icons.search),
+),
+const SizedBox(width: 8),
+],
+),
+body: SafeArea(
+child: ListView(
+padding: const EdgeInsets.fromLTRB(20, 22, 20, 110),
+children: [
+Text(
+'Onde você vai ficar?',
+style: Theme.of(context)
+    .textTheme
+    .headlineMedium
+    ?.copyWith(fontWeight: FontWeight.bold),
+),
+const SizedBox(height: 8),
+const Text(
+'Organize suas reservas e tenha todos os '
+'detalhes da hospedagem em um só lugar.',
+style: TextStyle(
+color: AppColors.textSecondary,
+height: 1.5,
+),
+),
+const SizedBox(height: 24),
+if (widget.viagemId == null) ...[
+_buildSemViagem(),
+] else ...[
+_buildResumo(),
+const SizedBox(height: 28),
+_buildTituloReservas(),
+const SizedBox(height: 16),
+if (_carregando)
+const Center(child: CircularProgressIndicator())
+else if (_erroCarregamento != null)
+Column(children: [
+Text(_erroCarregamento!, style: const TextStyle(color: AppColors.error)),
+TextButton(onPressed: _carregarHospedagens, child: const Text('Tentar novamente')),
+])
+else if (!temHospedagens)
+_buildEstadoVazio()
+else if (_listaFiltrada.isEmpty)
+_buildSemResultados()
+else
+..._listaFiltrada.map(_buildHospedagemCard),
+const SizedBox(height: 26),
+_buildDica(),
+],
+],
+),
+),
+floatingActionButton: temHospedagens
+? FloatingActionButton.extended(
+onPressed: () => _abrirFormulario(),
+icon: const Icon(Icons.add),
+label: const Text('Adicionar hospedagem'),
+)
+    : null,
+);
+}
 
-  void _removerHospedagem(int index) {
-    final hospedagem = _hospedagens[index];
+Widget _buildSemViagem() {
+return Card(
+child: Padding(
+padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+child: Column(
+children: [
+const Icon(Icons.luggage_outlined, size: 48, color: AppColors.primary),
+const SizedBox(height: 16),
+const Text('Selecione uma viagem',
+style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+const SizedBox(height: 8),
+const Text(
+'Crie ou selecione uma viagem na tela Início para organizar suas reservas.',
+textAlign: TextAlign.center,
+style: TextStyle(color: AppColors.textSecondary, height: 1.5),
+),
+],
+),
+),
+);
+}
 
-    setState(() {
-      _hospedagens.removeAt(index);
-    });
+Widget _buildResumo() {
+return Card(
+clipBehavior: Clip.antiAlias,
+child: Container(
+decoration: const BoxDecoration(
+gradient: AppColors.heroGradient,
+),
+padding: const EdgeInsets.all(20),
+child: Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+const Row(
+children: [
+Icon(
+Icons.hotel_rounded,
+color: AppColors.primary,
+size: 28,
+),
+SizedBox(width: 12),
+Expanded(
+child: Text(
+'Sua hospedagem',
+style: TextStyle(
+fontSize: 17,
+fontWeight: FontWeight.w800,
+),
+),
+),
+],
+),
+const SizedBox(height: 8),
+Text(
+'${_hospedagensDaViagem.length} reservas • $_totalNoites noites',
+style: const TextStyle(
+color: AppColors.textSecondary,
+fontSize: 12,
+),
+),
+const SizedBox(height: 18),
+const Divider(color: AppColors.border),
+const SizedBox(height: 16),
+Row(
+children: [
+Expanded(
+child: _ResumoItem(
+icone: Icons.nights_stay_outlined,
+valor: '$_totalNoites',
+titulo: 'Noites',
+),
+),
+Expanded(
+child: _ResumoItem(
+icone: Icons.hotel_outlined,
+valor: '${_hospedagensDaViagem.length}',
+titulo: 'Reservas',
+),
+),
+Expanded(
+child: _ResumoItem(
+icone: Icons.payments_outlined,
+valor: _moeda(_valorTotal),
+titulo: 'Total',
+),
+),
+],
+),
+],
+),
+),
+);
+}
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '${hospedagem.nome} removido.',
-        ),
-        action: SnackBarAction(
-          label: 'DESFAZER',
-          onPressed: () {
-            setState(() {
-              _hospedagens.insert(index, hospedagem);
-            });
-          },
-        ),
-      ),
-    );
-  }
+Widget _buildTituloReservas() {
+return Row(
+children: [
+const Expanded(
+child: Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+Text(
+'Minhas reservas',
+style: TextStyle(
+fontSize: 20,
+fontWeight: FontWeight.w800,
+),
+),
+SizedBox(height: 4),
+Text(
+'Suas hospedagens durante a viagem',
+style: TextStyle(
+color: AppColors.textSecondary,
+fontSize: 13,
+),
+),
+],
+),
+),
+if (_hospedagensDaViagem.isNotEmpty)
+PopupMenuButton<String>(
+tooltip: 'Ordenar',
+initialValue: _ordenacao,
+icon: const Icon(Icons.sort),
+onSelected: (valor) {
+setState(() => _ordenacao = valor);
+},
+itemBuilder: (_) => const [
+PopupMenuItem(
+value: 'Check-in',
+child: Text('Por check-in'),
+),
+PopupMenuItem(
+value: 'Valor',
+child: Text('Por valor'),
+),
+PopupMenuItem(
+value: 'Nome',
+child: Text('Por nome'),
+),
+],
+),
+],
+);
+}
 
-  void _pesquisar() {
-    showSearch(
-      context: context,
-      delegate: _HospedagemSearchDelegate(_hospedagens),
-    );
-  }
+Widget _buildEstadoVazio() {
+return Card(
+child: Padding(
+padding: const EdgeInsets.symmetric(
+horizontal: 24,
+vertical: 34,
+),
+child: Column(
+children: [
+Container(
+width: 72,
+height: 72,
+decoration: BoxDecoration(
+color: AppColors.primary.withValues(alpha: 0.12),
+shape: BoxShape.circle,
+),
+child: const Icon(
+Icons.hotel_outlined,
+color: AppColors.primary,
+size: 35,
+),
+),
+const SizedBox(height: 20),
+const Text(
+'Nenhuma hospedagem',
+style: TextStyle(
+fontSize: 19,
+fontWeight: FontWeight.w800,
+),
+),
+const SizedBox(height: 10),
+const Text(
+'Cadastre sua primeira reserva para '
+'organizar onde você vai ficar.',
+textAlign: TextAlign.center,
+style: TextStyle(
+color: AppColors.textSecondary,
+height: 1.5,
+),
+),
+const SizedBox(height: 22),
+FilledButton.icon(
+onPressed: () => _abrirFormulario(),
+icon: const Icon(Icons.add),
+label: const Text('Adicionar hospedagem'),
+),
+],
+),
+),
+);
+}
+
+Widget _buildSemResultados() {
+return const Card(
+child: Padding(
+padding: EdgeInsets.all(30),
+child: Column(
+children: [
+Icon(
+Icons.search_off_outlined,
+color: AppColors.primary,
+size: 42,
+),
+SizedBox(height: 12),
+Text('Nenhuma hospedagem encontrada.'),
+],
+),
+),
+);
+}
+
+Widget _buildHospedagemCard(_Hospedagem h) {
+return Padding(
+padding: const EdgeInsets.only(bottom: 14),
+child: Card(
+clipBehavior: Clip.antiAlias,
+child: InkWell(
+onTap: () => _abrirDetalhes(h),
+child: Padding(
+padding: const EdgeInsets.all(17),
+child: Column(
+children: [
+Row(
+children: [
+Container(
+width: 52,
+height: 52,
+decoration: BoxDecoration(
+color: AppColors.primary
+    .withValues(alpha: 0.12),
+borderRadius: BorderRadius.circular(15),
+),
+child: const Icon(
+Icons.hotel_rounded,
+color: AppColors.primary,
+size: 27,
+),
+),
+const SizedBox(width: 13),
+Expanded(
+child: Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+Text(
+h.nome,
+maxLines: 2,
+overflow: TextOverflow.ellipsis,
+style: const TextStyle(
+fontSize: 16,
+fontWeight: FontWeight.w800,
+),
+),
+const SizedBox(height: 5),
+Text(
+h.cidade,
+maxLines: 1,
+overflow: TextOverflow.ellipsis,
+style: const TextStyle(
+color: AppColors.textSecondary,
+fontSize: 12,
+),
+),
+],
+),
+),
+const Icon(
+Icons.chevron_right,
+color: AppColors.textMuted,
+),
+],
+),
+const SizedBox(height: 16),
+const Divider(color: AppColors.border),
+const SizedBox(height: 15),
+Row(
+children: [
+Expanded(
+child: _InfoItem(
+titulo: 'Check-in',
+valor: _data(h.checkIn),
+icone: Icons.login_outlined,
+),
+),
+Expanded(
+child: _InfoItem(
+titulo: 'Check-out',
+valor: _data(h.checkOut),
+icone: Icons.logout_outlined,
+),
+),
+],
+),
+const SizedBox(height: 16),
+Row(
+children: [
+Expanded(
+child: _InfoItem(
+titulo: 'Noites',
+valor: '${h.noites}',
+icone: Icons.nights_stay_outlined,
+),
+),
+Expanded(
+child: _InfoItem(
+titulo: 'Valor',
+valor: h.valor == null
+? 'Não informado'
+    : _moeda(h.valor!),
+icone: Icons.payments_outlined,
+),
+),
+],
+),
+],
+),
+),
+),
+),
+);
+}
+
+Widget _buildDica() {
+return Card(
+child: Padding(
+padding: const EdgeInsets.all(20),
+child: Row(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+const Icon(
+Icons.info_outline,
+color: AppColors.blue,
+size: 26,
+),
+const SizedBox(width: 14),
+const Expanded(
+child: Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+Text(
+'Dica',
+style: TextStyle(
+fontSize: 16,
+fontWeight: FontWeight.w800,
+),
+),
+SizedBox(height: 6),
+Text(
+'Guarde o endereço e as datas da '
+'reserva para encontrar tudo rapidamente '
+'durante a viagem.',
+style: TextStyle(
+color: AppColors.textSecondary,
+height: 1.5,
+),
+),
+],
+),
+),
+],
+),
+),
+);
+}
+
+Future<void> _abrirFormulario({
+_Hospedagem? hospedagem,
+}) async {
+final viagemId = widget.viagemId;
+if (viagemId == null) {
+ScaffoldMessenger.of(context).showSnackBar(
+const SnackBar(content: Text('Selecione uma viagem na tela Início.')),
+);
+return;
+}
+final nome = TextEditingController(
+text: hospedagem?.nome ?? '',
+);
+final cidade = TextEditingController(
+text: hospedagem?.cidade ?? '',
+);
+final endereco = TextEditingController(
+text: hospedagem?.endereco ?? '',
+);
+final valor = TextEditingController(
+text: hospedagem?.valor == null
+? ''
+    : hospedagem!.valor!.toStringAsFixed(2)
+    .replaceAll('.', ','),
+);
+
+DateTime? checkIn = hospedagem?.checkIn;
+DateTime? checkOut = hospedagem?.checkOut;
+String? erro;
+
+await showModalBottomSheet<void>(
+context: context,
+isScrollControlled: true,
+showDragHandle: true,
+backgroundColor: AppColors.surface,
+builder: (sheetContext) {
+return StatefulBuilder(
+builder: (context, atualizarModal) {
+return SafeArea(
+child: Padding(
+padding: EdgeInsets.fromLTRB(
+22,
+8,
+22,
+MediaQuery.viewInsetsOf(context).bottom + 24,
+),
+child: SingleChildScrollView(
+child: Column(
+mainAxisSize: MainAxisSize.min,
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+Text(
+hospedagem == null
+? 'Nova hospedagem'
+    : 'Editar hospedagem',
+style: Theme.of(context)
+    .textTheme
+    .headlineSmall,
+),
+const SizedBox(height: 22),
+TextField(
+controller: nome,
+textCapitalization:
+TextCapitalization.words,
+decoration: const InputDecoration(
+labelText: 'Nome da hospedagem *',
+prefixIcon: Icon(Icons.hotel_outlined),
+),
+),
+const SizedBox(height: 14),
+TextField(
+controller: cidade,
+textCapitalization:
+TextCapitalization.words,
+decoration: const InputDecoration(
+labelText: 'Cidade / País *',
+prefixIcon: Icon(Icons.public),
+),
+),
+const SizedBox(height: 14),
+TextField(
+controller: endereco,
+textCapitalization:
+TextCapitalization.words,
+decoration: const InputDecoration(
+labelText: 'Endereço',
+prefixIcon:
+Icon(Icons.location_on_outlined),
+),
+),
+const SizedBox(height: 14),
+TextField(
+controller: valor,
+keyboardType:
+const TextInputType.numberWithOptions(
+decimal: true,
+),
+decoration: const InputDecoration(
+labelText: 'Valor total da reserva',
+prefixIcon:
+Icon(Icons.payments_outlined),
+prefixText: 'R\$ ',
+),
+),
+const SizedBox(height: 20),
+const Text(
+'Datas da reserva',
+style: TextStyle(
+fontWeight: FontWeight.w700,
+),
+),
+const SizedBox(height: 10),
+Row(
+children: [
+Expanded(
+child: OutlinedButton(
+onPressed: () async {
+final data = await showDatePicker(
+context: context,
+initialDate:
+checkIn ?? DateTime.now(),
+firstDate: DateTime(2020),
+lastDate: DateTime(2100),
+);
+if (data != null) {
+atualizarModal(() {
+checkIn = data;
+});
+}
+},
+child: Text(
+checkIn == null
+? 'Check-in'
+    : _data(checkIn),
+maxLines: 1,
+overflow: TextOverflow.ellipsis,
+),
+),
+),
+const SizedBox(width: 10),
+Expanded(
+child: OutlinedButton(
+onPressed: () async {
+final data = await showDatePicker(
+context: context,
+initialDate:
+checkOut ??
+checkIn ??
+DateTime.now(),
+firstDate: DateTime(2020),
+lastDate: DateTime(2100),
+);
+if (data != null) {
+atualizarModal(() {
+checkOut = data;
+});
+}
+},
+child: Text(
+checkOut == null
+? 'Check-out'
+    : _data(checkOut),
+maxLines: 1,
+overflow: TextOverflow.ellipsis,
+),
+),
+),
+],
+),
+if (erro != null) ...[
+const SizedBox(height: 12),
+Text(
+erro!,
+style: const TextStyle(
+color: AppColors.error,
+),
+),
+],
+const SizedBox(height: 24),
+SizedBox(
+width: double.infinity,
+child: FilledButton.icon(
+onPressed: () async {
+if (_salvando) return;
+if (nome.text.trim().isEmpty ||
+cidade.text.trim().isEmpty) {
+atualizarModal(() {
+erro =
+'Preencha o nome e a cidade.';
+});
+return;
+}
+
+if (checkIn == null || checkOut == null) {
+atualizarModal(() => erro = 'Informe o check-in e o check-out.');
+return;
+}
+if (!checkOut!.isAfter(checkIn!)) {
+atualizarModal(() {
+erro =
+'O check-out deve ser após o check-in.';
+});
+return;
+}
+
+final textoValor = valor.text.trim();
+final valorNumerico =
+_lerValor(textoValor);
+
+if (valorNumerico == null ||
+!valorNumerico.isFinite || valorNumerico < 0) {
+atualizarModal(() {
+erro =
+'Informe um valor válido.';
+});
+return;
+}
+
+final novo = _Hospedagem(
+viagemId: viagemId,
+id: hospedagem?.id ??
+DateTime.now()
+    .microsecondsSinceEpoch
+    .toString(),
+nome: nome.text.trim(),
+cidade: cidade.text.trim(),
+endereco: endereco.text.trim(),
+checkIn: checkIn,
+checkOut: checkOut,
+valor: valorNumerico,
+);
+
+if (widget.viagemId != viagemId) return;
+atualizarModal(() { _salvando = true; erro = null; });
+try {
+await _client.from('hospedagens').upsert(
+novo.toModel().toMap(),
+);
+if (!mounted || widget.viagemId != viagemId) return;
+setState(() {
+final indice = _hospedagens.indexWhere((h) => h.id == novo.id);
+if (indice < 0) {
+_hospedagens.add(novo);
+} else {
+_hospedagens[indice] = novo;
+}
+});
+if (sheetContext.mounted) Navigator.pop(sheetContext);
+} catch (e) {
+if (sheetContext.mounted) {
+atualizarModal(() => erro = 'Não foi possível salvar: $e');
+}
+} finally {
+_salvando = false;
+}
+},
+icon: Icon(
+hospedagem == null
+? Icons.add
+    : Icons.save_outlined,
+),
+label: Text(
+hospedagem == null
+? 'Adicionar hospedagem'
+    : 'Salvar alterações',
+),
+),
+),
+],
+),
+),
+),
+);
+},
+);
+},
+);
+
+await Future<void>.delayed(
+const Duration(milliseconds: 300),
+);
+
+nome.dispose();
+cidade.dispose();
+endereco.dispose();
+valor.dispose();
+}
+
+void _abrirDetalhes(_Hospedagem h) {
+showModalBottomSheet<void>(
+context: context,
+showDragHandle: true,
+backgroundColor: AppColors.surface,
+isScrollControlled: true,
+builder: (sheetContext) {
+return SafeArea(
+child: Padding(
+padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+child: SingleChildScrollView(
+child: Column(
+mainAxisSize: MainAxisSize.min,
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+Row(
+children: [
+const Icon(
+Icons.hotel_rounded,
+color: AppColors.primary,
+size: 32,
+),
+const SizedBox(width: 12),
+Expanded(
+child: Text(
+h.nome,
+style: Theme.of(context)
+    .textTheme
+    .titleLarge,
+),
+),
+IconButton(
+onPressed: () =>
+Navigator.pop(sheetContext),
+icon: const Icon(Icons.close),
+),
+],
+),
+const SizedBox(height: 20),
+_detalhe('Cidade', h.cidade),
+_detalhe(
+'Endereço',
+h.endereco.isEmpty
+? 'Não informado'
+    : h.endereco,
+),
+_detalhe('Check-in', _data(h.checkIn)),
+_detalhe('Check-out', _data(h.checkOut)),
+_detalhe('Noites', '${h.noites}'),
+_detalhe(
+'Valor total',
+h.valor == null
+? 'Não informado'
+    : _moeda(h.valor!),
+),
+const SizedBox(height: 20),
+Row(
+children: [
+Expanded(
+child: OutlinedButton.icon(
+onPressed: () {
+Navigator.pop(sheetContext);
+_abrirFormulario(hospedagem: h);
+},
+icon: const Icon(Icons.edit_outlined),
+label: const Text('Editar'),
+),
+),
+const SizedBox(width: 10),
+Expanded(
+child: TextButton.icon(
+onPressed: () {
+Navigator.pop(sheetContext);
+_confirmarExclusao(h);
+},
+icon: const Icon(
+Icons.delete_outline,
+color: AppColors.error,
+),
+label: const Text(
+'Excluir',
+style: TextStyle(
+color: AppColors.error,
+),
+),
+),
+),
+],
+),
+],
+),
+),
+),
+);
+},
+);
+}
+
+Widget _detalhe(String titulo, String valor) {
+return Padding(
+padding: const EdgeInsets.only(bottom: 12),
+child: Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+Text(
+titulo,
+style: const TextStyle(
+color: AppColors.textMuted,
+fontSize: 12,
+),
+),
+const SizedBox(height: 4),
+Text(
+valor,
+style: const TextStyle(
+fontWeight: FontWeight.w600,
+),
+),
+],
+),
+);
+}
+
+Future<void> _confirmarExclusao(_Hospedagem h) async {
+final confirmar = await showDialog<bool>(
+context: context,
+builder: (dialogContext) => AlertDialog(
+title: const Text('Excluir hospedagem?'),
+content: Text(
+'Deseja remover "${h.nome}" das suas reservas?',
+),
+actions: [
+TextButton(
+onPressed: () =>
+Navigator.pop(dialogContext, false),
+child: const Text('Cancelar'),
+),
+FilledButton(
+onPressed: () =>
+Navigator.pop(dialogContext, true),
+child: const Text('Excluir'),
+),
+],
+),
+);
+
+if (confirmar != true || !mounted) return;
+
+try {
+await _client.from('hospedagens').delete().eq('id', h.id)
+    .eq('viagemId', h.viagemId);
+if (!mounted) return;
+setState(() {
+_hospedagens.removeWhere((item) => item.id == h.id && item.viagemId == h.viagemId);
+});
+ScaffoldMessenger.of(context).showSnackBar(
+SnackBar(content: Text('${h.nome} removido.')),
+);
+} catch (e) {
+_avisarErro(e);
+}
+}
+
+Future<void> _abrirPesquisa() async {
+final controller = TextEditingController(text: _busca);
+
+await showDialog<void>(
+context: context,
+builder: (dialogContext) => AlertDialog(
+title: const Text('Pesquisar hospedagem'),
+content: TextField(
+controller: controller,
+autofocus: true,
+decoration: const InputDecoration(
+hintText: 'Nome, cidade ou endereço',
+prefixIcon: Icon(Icons.search),
+),
+onSubmitted: (texto) {
+setState(() => _busca = texto);
+Navigator.pop(dialogContext);
+},
+),
+actions: [
+TextButton(
+onPressed: () {
+setState(() => _busca = '');
+Navigator.pop(dialogContext);
+},
+child: const Text('Limpar'),
+),
+FilledButton(
+onPressed: () {
+setState(() {
+_busca = controller.text;
+});
+Navigator.pop(dialogContext);
+},
+child: const Text('Pesquisar'),
+),
+],
+),
+);
+
+controller.dispose();
+}
 }
 
 class _Hospedagem {
-  final String nome;
-  final String cidade;
-  final String endereco;
-  final String checkIn;
-  final String checkOut;
-  final int noites;
-  final String valor;
-  final double nota;
-  final IconData icon;
+final String id;
+final String viagemId;
+final String nome;
+final String cidade;
+final String endereco;
+final DateTime? checkIn;
+final DateTime? checkOut;
+final double? valor;
 
-  const _Hospedagem({
-    required this.nome,
-    required this.cidade,
-    required this.endereco,
-    required this.checkIn,
-    required this.checkOut,
-    required this.noites,
-    required this.valor,
-    required this.nota,
-    required this.icon,
-  });
+const _Hospedagem({
+required this.id,
+required this.viagemId,
+required this.nome,
+required this.cidade,
+required this.endereco,
+required this.checkIn,
+required this.checkOut,
+required this.valor,
+});
+
+factory _Hospedagem.fromModel(Hospedagem h) => _Hospedagem(
+id: h.id, viagemId: h.viagemId, nome: h.nome,
+cidade: h.endereco.contains(' • ') ? h.endereco.split(' • ').first : '',
+endereco: h.endereco.contains(' • ') ? h.endereco.split(' • ').skip(1).join(' • ') : h.endereco, checkIn: h.checkIn,
+checkOut: h.checkOut, valor: h.valorTotal,
+);
+
+Hospedagem toModel() => Hospedagem(
+id: id, viagemId: viagemId, nome: nome,
+endereco: cidade.isEmpty ? endereco : (endereco.isEmpty ? cidade : '$cidade • $endereco'),
+checkIn: checkIn!, checkOut: checkOut!,
+valorTotal: valor!,
+);
+
+int get noites {
+if (checkIn == null || checkOut == null) return 0;
+
+final diferenca =
+checkOut!.difference(checkIn!).inDays;
+
+return diferenca > 0 ? diferenca : 0;
+}
 }
 
-class _HospedagemCard extends StatelessWidget {
-  final _Hospedagem hospedagem;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
+class _ResumoItem extends StatelessWidget {
+final IconData icone;
+final String valor;
+final String titulo;
 
-  const _HospedagemCard({
-    required this.hospedagem,
-    required this.onTap,
-    required this.onDelete,
-  });
+const _ResumoItem({
+required this.icone,
+required this.valor,
+required this.titulo,
+});
 
-  @override
-  Widget build(BuildContext context) {
-    return Dismissible(
-      key: ValueKey(
-        '${hospedagem.nome}_${hospedagem.endereco}',
-      ),
-      direction: DismissDirection.endToStart,
-      confirmDismiss: (_) async {
-        onDelete();
-        return false;
-      },
-      background: Container(
-        decoration: BoxDecoration(
-          color: AppColors.error,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 24),
-        child: const Icon(
-          Icons.delete_outline,
-          color: Colors.white,
-        ),
-      ),
-      child: Card(
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(17),
-                      ),
-                      child: const Icon(
-                        Icons.hotel_rounded,
-                        color: AppColors.primary,
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(width: 15),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            hospedagem.nome,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.location_on_outlined,
-                                size: 14,
-                                color: AppColors.textMuted,
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  hospedagem.cidade,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (hospedagem.nota > 0)
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.star_rounded,
-                            color: AppColors.warning,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 3),
-                          Text(
-                            hospedagem.nota.toStringAsFixed(1),
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                const Divider(),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _InfoItem(
-                        icon: Icons.login_outlined,
-                        label: 'Check-in',
-                        value: hospedagem.checkIn,
-                      ),
-                    ),
-                    Expanded(
-                      child: _InfoItem(
-                        icon: Icons.logout_outlined,
-                        label: 'Check-out',
-                        value: hospedagem.checkOut,
-                      ),
-                    ),
-                    Expanded(
-                      child: _InfoItem(
-                        icon: Icons.payments_outlined,
-                        label: 'Valor',
-                        value: hospedagem.valor,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.location_on_outlined,
-                      color: AppColors.textMuted,
-                      size: 15,
-                    ),
-                    const SizedBox(width: 5),
-                    Expanded(
-                      child: Text(
-                        hospedagem.endereco,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                    const Icon(
-                      Icons.chevron_right,
-                      color: AppColors.textMuted,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+@override
+Widget build(BuildContext context) {
+return Column(
+children: [
+Icon(
+icone,
+color: AppColors.primary,
+size: 22,
+),
+const SizedBox(height: 8),
+Text(
+valor,
+textAlign: TextAlign.center,
+style: const TextStyle(
+fontSize: 15,
+fontWeight: FontWeight.w900,
+),
+),
+const SizedBox(height: 4),
+Text(
+titulo,
+style: const TextStyle(
+color: AppColors.textSecondary,
+fontSize: 11,
+),
+),
+],
+);
+}
 }
 
 class _InfoItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
+final String titulo;
+final String valor;
+final IconData icone;
 
-  const _InfoItem({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
+const _InfoItem({
+required this.titulo,
+required this.valor,
+required this.icone,
+});
 
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Icon(
-          icon,
-          color: AppColors.primary,
-          size: 19,
-        ),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          style: const TextStyle(
-            color: AppColors.textMuted,
-            fontSize: 10,
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          value,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w700,
-            fontSize: 11,
-          ),
-        ),
-      ],
-    );
-  }
+@override
+Widget build(BuildContext context) {
+return Column(
+children: [
+Icon(
+icone,
+color: AppColors.primary,
+size: 19,
+),
+const SizedBox(height: 7),
+Text(
+titulo,
+style: const TextStyle(
+color: AppColors.textMuted,
+fontSize: 11,
+),
+),
+const SizedBox(height: 4),
+Text(
+valor,
+maxLines: 2,
+overflow: TextOverflow.ellipsis,
+textAlign: TextAlign.center,
+style: const TextStyle(
+fontWeight: FontWeight.w700,
+fontSize: 11,
+),
+),
+],
+);
+}
 }
 
-class _SummaryItem extends StatelessWidget {
-  final IconData icon;
-  final String value;
-  final String label;
-
-  const _SummaryItem({
-    required this.icon,
-    required this.value,
-    required this.label,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Icon(
-          icon,
-          color: AppColors.primary,
-          size: 21,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          value,
-          style: const TextStyle(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w900,
-            fontSize: 17,
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          label,
-          style: const TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 11,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _DetailRow extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String value;
-
-  const _DetailRow({
-    required this.icon,
-    required this.title,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: AppColors.surfaceElevated,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(
-            icon,
-            color: AppColors.textSecondary,
-            size: 20,
-          ),
-        ),
-        const SizedBox(width: 13),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: AppColors.textMuted,
-                  fontSize: 11,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                value,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _HospedagemSearchDelegate
-    extends SearchDelegate<_Hospedagem?> {
-  final List<_Hospedagem> hospedagens;
-
-  _HospedagemSearchDelegate(this.hospedagens);
-
-  @override
-  List<Widget>? buildActions(BuildContext context) {
-    return [
-      if (query.isNotEmpty)
-        IconButton(
-          onPressed: () => query = '',
-          icon: const Icon(Icons.clear),
-        ),
-    ];
-  }
-
-  @override
-  Widget? buildLeading(BuildContext context) {
-    return IconButton(
-      onPressed: () => close(context, null),
-      icon: const Icon(Icons.arrow_back),
-    );
-  }
-
-  @override
-  Widget buildResults(BuildContext context) {
-    return _buildResults();
-  }
-
-  @override
-  Widget buildSuggestions(BuildContext context) {
-    return _buildResults();
-  }
-
-  Widget _buildResults() {
-    final resultados = hospedagens.where((hospedagem) {
-      final termo = query.toLowerCase();
-
-      return hospedagem.nome.toLowerCase().contains(termo) ||
-          hospedagem.cidade.toLowerCase().contains(termo) ||
-          hospedagem.endereco.toLowerCase().contains(termo);
-    }).toList();
-
-    if (resultados.isEmpty) {
-      return const Center(
-        child: Text(
-          'Nenhuma hospedagem encontrada.',
-          style: TextStyle(
-            color: AppColors.textSecondary,
-          ),
-        ),
-      );
-    }
-
-    return ListView.separated(
-      padding: const EdgeInsets.all(20),
-      itemCount: resultados.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final hospedagem = resultados[index];
-
-        return ListTile(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          tileColor: AppColors.surface,
-          leading: const CircleAvatar(
-            backgroundColor: Color(0x1FD6A84F),
-            child: Icon(
-              Icons.hotel_outlined,
-              color: AppColors.primary,
-            ),
-          ),
-          title: Text(hospedagem.nome),
-          subtitle: Text(hospedagem.cidade),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => close(context, hospedagem),
-        );
-      },
-    );
-  }
-}
