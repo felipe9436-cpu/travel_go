@@ -5,7 +5,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/redefinir_senha_screen.dart';
 import 'theme/app_theme.dart';
+
+// Controla a recuperação de senha, mesmo se o link abrir o app fechado.
+final ValueNotifier<bool> recuperacaoSenhaAtiva = ValueNotifier<bool>(false);
+final GlobalKey<NavigatorState> wildlifeNavigatorKey = GlobalKey<NavigatorState>();
+StreamSubscription<AuthState>? _recuperacaoSubscription;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,11 +26,29 @@ Future<void> main() async {
       url: supabaseUrl,
       publishableKey: supabasePublishableKey,
     );
+
+    // Registra o listener ANTES de construir a interface para não perder
+    // o retorno do link de recuperação durante a abertura do aplicativo.
+    _recuperacaoSubscription = Supabase.instance.client.auth.onAuthStateChange.listen(
+          (estado) {
+        if (estado.event == AuthChangeEvent.passwordRecovery) {
+          recuperacaoSenhaAtiva.value = true;
+
+          // Fecha outras telas abertas (como "Esqueceu a senha?").
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            wildlifeNavigatorKey.currentState?.popUntil((rota) => rota.isFirst);
+          });
+        } else if (estado.event == AuthChangeEvent.signedOut) {
+          recuperacaoSenhaAtiva.value = false;
+        }
+      },
+      onError: (Object erro, StackTrace stackTrace) {
+        debugPrint('Erro ao receber link de recuperação: $erro');
+      },
+    );
   }
 
-  runApp(
-    WildLifeApp(supabaseConfigurado: supabasePublishableKey.isNotEmpty),
-  );
+  runApp(WildLifeApp(supabaseConfigurado: supabasePublishableKey.isNotEmpty));
 }
 
 class WildLifeApp extends StatelessWidget {
@@ -35,6 +59,7 @@ class WildLifeApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: wildlifeNavigatorKey,
       title: 'WildLife',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
@@ -45,7 +70,7 @@ class WildLifeApp extends StatelessWidget {
   }
 }
 
-/// Mantém a navegação principal sincronizada com a sessão do Supabase.
+/// Mantém a navegação sincronizada com a sessão do Supabase.
 class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
 
@@ -67,7 +92,6 @@ class _AuthGateState extends State<AuthGate> {
     _authSubscription = _auth.onAuthStateChange.listen((estado) {
       if (!mounted) return;
       setState(() {
-        // No logout, não reutilize uma sessão anterior.
         _sessao = estado.event == AuthChangeEvent.signedOut
             ? null
             : estado.session;
@@ -83,14 +107,22 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   Widget build(BuildContext context) {
-    if (_sessao != null) {
-      return const HomeScreen(key: ValueKey('home-autenticada'));
-    }
-    return const LoginScreen(key: ValueKey('login-desconectado'));
+    return ValueListenableBuilder<bool>(
+      valueListenable: recuperacaoSenhaAtiva,
+      builder: (context, recuperando, _) {
+        if (recuperando) {
+          return const RedefinirSenhaScreen(key: ValueKey('redefinir-senha'));
+        }
+        if (_sessao != null) {
+          return const HomeScreen(key: ValueKey('home-autenticada'));
+        }
+        return const LoginScreen(key: ValueKey('login-desconectado'));
+      },
+    );
   }
 }
 
-/// Evita tentar autenticar quando a chave pública não foi informada.
+/// Mostra um aviso se a chave pública não foi informada no Run Configuration.
 class _SupabaseNaoConfiguradoScreen extends StatelessWidget {
   const _SupabaseNaoConfiguradoScreen();
 

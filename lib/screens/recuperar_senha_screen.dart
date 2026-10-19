@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../theme/app_colors.dart';
 
-/// Tela visual de recuperação de senha.
-/// O envio real do e-mail será implementado com Supabase Auth.
+/// Solicita ao Supabase o envio do link de recuperação de senha.
 class RecuperarSenhaScreen extends StatefulWidget {
   const RecuperarSenhaScreen({super.key});
 
@@ -14,6 +14,8 @@ class RecuperarSenhaScreen extends StatefulWidget {
 class _RecuperarSenhaScreenState extends State<RecuperarSenhaScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
+  bool _enviando = false;
+  bool _solicitado = false;
 
   @override
   void dispose() {
@@ -21,17 +23,36 @@ class _RecuperarSenhaScreenState extends State<RecuperarSenhaScreen> {
     super.dispose();
   }
 
-  void _solicitarRecuperacao() {
-    if (!_formKey.currentState!.validate()) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text(
-            'E-mail validado! O envio do link será ativado quando conectarmos o Supabase Auth.',
-          ),
-        ),
+  Future<void> _solicitarRecuperacao() async {
+    if (_enviando || !_formKey.currentState!.validate()) return;
+
+    FocusScope.of(context).unfocus();
+    setState(() => _enviando = true);
+    try {
+      await Supabase.instance.client.auth.resetPasswordForEmail(
+        _emailController.text.trim(),
+        redirectTo: 'wildlifeapp://reset-password',
       );
+      if (!mounted) return;
+      setState(() => _solicitado = true);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Se houver uma conta com esse e-mail, você receberá um link de recuperação.'),
+        ));
+    } on AuthException catch (erro) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('Não foi possível solicitar a recuperação: ${erro.message}')));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('Falha de conexão. Tente novamente em instantes.')));
+    } finally {
+      if (mounted) setState(() => _enviando = false);
+    }
   }
 
   @override
@@ -117,7 +138,7 @@ class _RecuperarSenhaScreenState extends State<RecuperarSenhaScreen> {
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        'Informe o e-mail da sua conta. Quando a recuperação estiver ativa, você receberá um link para redefinir sua senha.',
+                        'Informe o e-mail da sua conta. Vamos enviar um link para você cadastrar uma nova senha.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: AppColors.textSecondary,
@@ -153,7 +174,9 @@ class _RecuperarSenhaScreenState extends State<RecuperarSenhaScreen> {
                                 keyboardType: TextInputType.emailAddress,
                                 textInputAction: TextInputAction.done,
                                 autofillHints: const [AutofillHints.email],
-                                onFieldSubmitted: (_) => _solicitarRecuperacao(),
+                                onFieldSubmitted: (_) {
+                                  if (!_enviando) _solicitarRecuperacao();
+                                },
                                 style: const TextStyle(color: AppColors.textPrimary),
                                 decoration: InputDecoration(
                                   hintText: 'seuemail@exemplo.com',
@@ -195,11 +218,17 @@ class _RecuperarSenhaScreenState extends State<RecuperarSenhaScreen> {
                                     borderRadius: BorderRadius.circular(15),
                                   ),
                                   child: FilledButton.icon(
-                                    onPressed: _solicitarRecuperacao,
-                                    icon: const Icon(Icons.send_rounded, size: 19),
-                                    label: const Text(
-                                      'RECUPERAR SENHA',
-                                      style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1),
+                                    onPressed: _enviando ? null : _solicitarRecuperacao,
+                                    icon: _enviando
+                                        ? const SizedBox(
+                                      width: 19,
+                                      height: 19,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.navy),
+                                    )
+                                        : const Icon(Icons.send_rounded, size: 19),
+                                    label: Text(
+                                      _enviando ? 'ENVIANDO...' : 'RECUPERAR SENHA',
+                                      style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1),
                                     ),
                                     style: FilledButton.styleFrom(
                                       backgroundColor: Colors.transparent,
@@ -216,6 +245,14 @@ class _RecuperarSenhaScreenState extends State<RecuperarSenhaScreen> {
                           ),
                         ),
                       ),
+                      if (_solicitado) ...[
+                        const SizedBox(height: 18),
+                        const Text(
+                          'Confira sua caixa de entrada e o spam. Abra o link no celular com o WildLife instalado.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: AppColors.textSecondary, fontSize: 12, height: 1.5),
+                        ),
+                      ],
                       const SizedBox(height: 25),
                       TextButton.icon(
                         onPressed: () => Navigator.of(context).pop(),
